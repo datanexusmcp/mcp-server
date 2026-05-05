@@ -151,7 +151,8 @@ def _apply_t10_rules(
     incomplete_count = 0
     for vuln in vulns:
         summary  = (vuln.get("summary") or "").strip()
-        severity = vuln.get("severity") or {}
+        _sev_raw = vuln.get("severity")
+        severity = _sev_raw if isinstance(_sev_raw, dict) else {}
         level    = (severity.get("level") or "").strip()
         if not summary and not level:
             vuln["incomplete"] = True
@@ -261,8 +262,9 @@ def _val_fix_severity_levels(vulns: list) -> "tuple[list, int]":
     """
     fixed = 0
     for vuln in vulns:
-        sev    = vuln.get("severity") or {}
-        level  = sev.get("level", "UNKNOWN")
+        _sev_raw = vuln.get("severity")
+        sev      = _sev_raw if isinstance(_sev_raw, dict) else {}
+        level    = sev.get("level", "UNKNOWN")
         vector = sev.get("vector", "")
         if level in ("UNKNOWN", "", None) and vector:
             derived = _derive_level_from_vector(vector)
