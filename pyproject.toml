@@ -43,7 +43,7 @@ datanexus-mcp = "datanexus.main:main"
 
 [project.urls]
 Homepage = "https://datanexusmcp.com"
-Repository = "https://github.com/datanexus/mcp-server"
+Repository = "https://github.com/datanexusmcp/mcp-server"
 Documentation = "https://datanexusmcp.com/docs"
 
 [tool.hatch.build.targets.wheel]

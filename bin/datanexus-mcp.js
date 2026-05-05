@@ -6,14 +6,14 @@
  *   pip install datanexus-mcp
  *
  * Then run via npx:
- *   npx -y @datanexus/mcp-server
+ *   npx -y @datanexusmcp/mcp-server
  *
  * Or add to Claude Desktop claude_desktop_config.json:
  *   {
  *     "mcpServers": {
  *       "datanexus": {
  *         "command": "npx",
- *         "args": ["-y", "@datanexus/mcp-server"]
+ *         "args": ["-y", "@datanexusmcp/mcp-server"]
  *       }
  *     }
  *   }
