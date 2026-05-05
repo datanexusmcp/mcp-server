@@ -24,7 +24,7 @@
   "homepage": "https://datanexusmcp.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/datanexus/mcp-server.git"
+    "url": "https://github.com/datanexusmcp/mcp-server.git"
   },
   "license": "MIT",
   "bin": {
