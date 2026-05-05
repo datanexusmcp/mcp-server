@@ -1,0 +1,16 @@
+datanexusmcp.com {
+	# ── Dashboard access — ops IP only ──────────────────────────────────────────
+	@ops_ip {
+		remote_ip 178.104.251.70
+	}
+
+	handle /ops/dashboard* {
+		reverse_proxy @ops_ip datanexus-mcp:8101
+		respond 403
+	}
+
+	# ── MCP server (all other traffic) ──────────────────────────────────────────
+	handle {
+		reverse_proxy datanexus-mcp:8000
+	}
+}

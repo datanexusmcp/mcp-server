@@ -1,0 +1,33 @@
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python eggs / virtual envs
+*.egg-info/
+.venv/
+venv/
+
+# Test files
+tests/
+**/tests/
+**/test_*.py
+
+# Docker / deployment
+Dockerfile
+docker-compose.yml
+Caddyfile
+deploy.sh
+start.sh
+.env
+.env.*
+
+# Dev config
+.well-known/
+feedback/
+payment/
+
+# Git
+.git/
+.gitignore

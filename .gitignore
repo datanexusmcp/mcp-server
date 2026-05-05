@@ -1,0 +1,31 @@
+# Secrets — never commit
+.env
+*.env
+*.env.*
+
+# macOS
+.DS_Store
+.DS_Store?
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Spec docx blobs (large binary — store separately)
+*.docx
+
+# Audit reports (generated artefacts)
+*_audit.docx

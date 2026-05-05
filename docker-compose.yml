@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# DataNexus MCP — production stack
+#
+# Usage:
+#   docker compose up -d          # start all services
+#   docker compose logs -f        # follow all logs
+#   docker compose ps             # check service status
+#
+# Env file: /app/.env on the Hetzner server
+# ---------------------------------------------------------------------------
+
+services:
+
+  # ---------- DataNexus MCP server ------------------------------------------
+  datanexus-mcp:
+    build: .
+    restart: always
+    ports:
+      - "8000:8000"
+      - "8101:8101"
+    env_file: /app/.env
+    environment:
+      DATANEXUS_REDIS_URL: redis://redis:6379
+      DATANEXUS_DB_URL: postgresql://datanexus:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/datanexus
+    depends_on:
+      - redis
+      - postgres
+
+  # ---------- Redis ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+
+  # ---------- PostgreSQL ----------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    env_file: /app/.env
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
+  # ---------- Caddy (TLS termination) ---------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+
+volumes:
+  redis-data:
+  pg-data:
+  caddy-data:

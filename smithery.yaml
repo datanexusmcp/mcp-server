@@ -1,0 +1,145 @@
+# DataNexus MCP — Smithery registry manifest
+# https://smithery.ai
+
+name: datanexus-mcp
+displayName: DataNexus MCP
+description: >
+  AI-Ready access to US/UK nonprofit data and OSS vulnerability intelligence via MCP.
+  T04 — Nonprofits: look up any US nonprofit by EIN (IRS EO BMF + IRS TEOS),
+  search by name, or retrieve UK charity registration data (Charity Commission England and Wales).
+  T10 — OSS Vulnerability Intelligence: CVEs per package/version (Google OSV.dev),
+  full dependency graphs (deps.dev), CVE detail with CVSS scores (NIST NVD),
+  CycloneDX/SPDX SBOM auditing, and SPDX licence lookups.
+  All responses are token-efficient AI-Ready Markdown with verified source URLs,
+  fetch timestamps, and SHA-256 integrity hashes. No API key required.
+
+version: 1.0.4
+license: MIT
+homepage: https://datanexusmcp.com
+repository: https://github.com/datanexus/mcp-server
+
+categories:
+  - data
+  - research
+  - legal
+  - finance
+  - government
+  - security
+
+tags:
+  - nonprofit
+  - EIN
+  - IRS
+  - charity
+  - UK-charity
+  - CCEW
+  - CVE
+  - OSV
+  - SBOM
+  - CycloneDX
+  - SPDX
+  - dependency-graph
+  - NIST-NVD
+  - CVSS
+  - vulnerability
+
+runtime: python
+pythonVersion: ">=3.11"
+
+startCommand:
+  type: http
+  url: https://datanexusmcp.com/mcp
+
+# Local fallback (requires Python 3.11+ and pip install datanexus-mcp)
+# startCommand:
+#   type: stdio
+#   command: python3
+#   args:
+#     - -m
+#     - datanexus.main
+
+installSteps:
+  - pip install datanexus-mcp
+
+environmentVariables:
+  DATANEXUS_ENV:
+    description: Runtime environment. Set to 'production' on the Hetzner server.
+    required: false
+    default: development
+
+  DATANEXUS_REDIS_URL:
+    description: Redis URL for response caching. Falls back to in-process fakeredis if unavailable.
+    required: false
+    default: redis://localhost:6379
+
+  DATANEXUS_DB_URL:
+    description: PostgreSQL URL for session telemetry. Optional — telemetry skipped if absent.
+    required: false
+
+  MCPIZE_ACTIVE:
+    description: >
+      Master payment enforcement switch. false = free window (all tools pass through).
+      true = verify_entitlement enforces subscription checks. Default false.
+    required: false
+    default: "false"
+
+  FEEDBACK_AGENTS_ACTIVE:
+    description: >
+      Enable background feedback classification agents. false = agents inactive,
+      feedback still recorded. Default false.
+    required: false
+    default: "false"
+
+  DATANEXUS_UK_CHARITY_KEY:
+    description: >
+      Charity Commission England and Wales API key.
+      Free at register-of-charities.charitycommission.gov.uk/register/api-request.
+      Tools degrade gracefully if absent.
+    required: false
+
+tools:
+  # ── T04 — US/UK Nonprofits ──────────────────────────────────────────────────
+  - name: fetch_nonprofit_by_ein
+    description: >
+      US nonprofit lookup by EIN. Sources: IRS EO BMF + IRS TEOS.
+      Returns org name, address, NTEE code, ruling date, and financial summary.
+      AI-Ready Markdown. No API key required.
+
+  - name: search_nonprofits_by_name
+    description: >
+      Search US nonprofits by organisation name. Source: IRS EO BMF.
+      Returns top matches with EIN, name, state, NTEE code.
+      No API key required.
+
+  - name: fetch_charity_uk
+    description: >
+      UK charity data from Charity Commission England and Wales (CCEW).
+      Returns registered name, income, activities, trustees.
+      UK GDPR purpose-limitation applies — data for due-diligence only.
+      No API key required.
+
+  # ── T10 — OSS Vulnerability Intelligence ────────────────────────────────────
+  - name: fetch_package_vulnerabilities
+    description: >
+      Known CVEs for an open-source package + version. Source: Google OSV.dev.
+      Returns CVSS v3 scores, aliases, affected ranges. No API key required.
+
+  - name: fetch_dependency_graph
+    description: >
+      Transitive dependency graph for a package version. Source: deps.dev (Google).
+      Hard 8-second timeout. No API key required.
+
+  - name: fetch_cve_detail
+    description: >
+      Full CVE detail by CVE ID. Source: NIST NVD.
+      Returns CVSS v3 base score, vector, CWE, CPEs, references. No API key required.
+
+  - name: audit_sbom_vulnerabilities
+    description: >
+      Audit a CycloneDX or SPDX SBOM against Google OSV.dev.
+      Returns per-component vulnerability findings with severity. No API key required.
+
+  - name: fetch_package_licence
+    description: >
+      SPDX licence identifier for an open-source package version.
+      Source: deps.dev (Google). No API key required.

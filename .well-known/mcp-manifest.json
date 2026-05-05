@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0",
+  "name": "DataNexus MCP",
+  "description": "AI-Ready access to US/UK nonprofit data and OSS vulnerability intelligence. T04: US nonprofits via IRS EO BMF + IRS TEOS, UK charities via Charity Commission England and Wales. T10: CVEs via Google OSV.dev, dependency graphs via deps.dev, CVE detail via NIST NVD, SBOM auditing, licence lookups. Token-efficient AI-Ready Markdown. No API key required.",
+  "version": "1.0.2",
+  "homepage": "https://datanexusmcp.com",
+  "repository": "https://github.com/datanexus/mcp-server",
+  "contact": "admin@datanexusmcp.com",
+  "license": "MIT",
+  "transport": [
+    {
+      "type": "streamable-http",
+      "url": "https://datanexusmcp.com/mcp"
+    }
+  ],
+  "install": {
+    "pip": "pip install datanexus-mcp",
+    "npx": "npx -y @datanexusmcp/mcp-server"
+  },
+  "tools": [
+    {
+      "name": "fetch_nonprofit_by_ein",
+      "description": "US nonprofit lookup by EIN. Sources: IRS EO BMF + IRS TEOS.",
+      "parameters": {
+        "ein": { "type": "string", "description": "EIN in XX-XXXXXXX or XXXXXXXXX format", "required": true }
+      }
+    },
+    {
+      "name": "search_nonprofits_by_name",
+      "description": "Search US nonprofits by name. Source: IRS EO BMF.",
+      "parameters": {
+        "name": { "type": "string", "description": "Organisation name to search", "required": true },
+        "state": { "type": "string", "description": "Two-letter US state code filter (optional)", "required": false }
+      }
+    },
+    {
+      "name": "fetch_charity_uk",
+      "description": "UK charity registration data from Charity Commission England and Wales (CCEW). UK GDPR purpose-limitation: due-diligence use only.",
+      "parameters": {
+        "charity_number_or_name": { "type": "string", "description": "UK charity registration number or name", "required": true }
+      }
+    },
+    {
+      "name": "fetch_package_vulnerabilities",
+      "description": "Known CVEs for an open-source package + version. Source: Google OSV.dev.",
+      "parameters": {
+        "package": { "type": "string", "description": "Package name", "required": true },
+        "version": { "type": "string", "description": "Package version", "required": true },
+        "ecosystem": { "type": "string", "description": "Ecosystem (PyPI, npm, Go, Maven, etc.)", "required": true }
+      }
+    },
+    {
+      "name": "fetch_dependency_graph",
+      "description": "Transitive dependency graph for a package version. Source: deps.dev (Google). Hard 8s timeout.",
+      "parameters": {
+        "package": { "type": "string", "description": "Package name", "required": true },
+        "version": { "type": "string", "description": "Package version", "required": true },
+        "ecosystem": { "type": "string", "description": "Ecosystem (PyPI, npm, Go, etc.)", "required": true }
+      }
+    },
+    {
+      "name": "fetch_cve_detail",
+      "description": "Full CVE detail with CVSS v3 scores and affected CPEs. Source: NIST NVD.",
+      "parameters": {
+        "cve_id": { "type": "string", "description": "CVE identifier (e.g. CVE-2024-47081)", "required": true }
+      }
+    },
+    {
+      "name": "audit_sbom_vulnerabilities",
+      "description": "Audit a CycloneDX or SPDX SBOM against Google OSV.dev.",
+      "parameters": {
+        "sbom_json": { "type": "string", "description": "CycloneDX or SPDX SBOM as a JSON string", "required": true }
+      }
+    },
+    {
+      "name": "fetch_package_licence",
+      "description": "SPDX licence identifier for an open-source package version. Source: deps.dev (Google).",
+      "parameters": {
+        "package": { "type": "string", "description": "Package name", "required": true },
+        "version": { "type": "string", "description": "Package version", "required": true },
+        "ecosystem": { "type": "string", "description": "Ecosystem (PyPI, npm, Go, etc.)", "required": true }
+      }
+    }
+  ],
+  "data_sources": [
+    { "name": "IRS EO BMF", "url": "https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf", "auth": "none" },
+    { "name": "IRS TEOS", "url": "https://apps.irs.gov/app/eos/", "auth": "none" },
+    { "name": "Charity Commission England and Wales (CCEW)", "url": "https://api.charitycommission.gov.uk", "auth": "none" },
+    { "name": "Google OSV.dev", "url": "https://api.osv.dev/v1", "auth": "none" },
+    { "name": "NIST NVD", "url": "https://services.nvd.nist.gov/rest/json/cves/2.0", "auth": "none" },
+    { "name": "deps.dev (Google)", "url": "https://api.deps.dev", "auth": "none" }
+  ],
+  "tools_count": 8,
+  "cache_ttl_seconds": 86400,
+  "integrity": "sha256",
+  "free_tier": true
+}

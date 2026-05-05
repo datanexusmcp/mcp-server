@@ -1,0 +1,47 @@
+{
+  "name": "@datanexusmcp/mcp-server",
+  "version": "1.0.4",
+  "description": "DataNexus MCP — AI-Ready access to US/UK nonprofit data (IRS EO BMF, IRS TEOS, UK Charity Commission) and OSS vulnerability intelligence (OSV.dev, NIST NVD, deps.dev). 10 tools. No API key required.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "data",
+    "trademark",
+    "company",
+    "nist",
+    "nonprofit",
+    "property",
+    "worldbank",
+    "dns",
+    "legislation",
+    "nutrition",
+    "vulnerability",
+    "gleif",
+    "usda",
+    "osv"
+  ],
+  "homepage": "https://datanexusmcp.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/datanexus/mcp-server.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "datanexusmcp": "./bin/datanexus-mcp.js"
+  },
+  "scripts": {
+    "start": "node bin/datanexus-mcp.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "datanexus/",
+    "pyproject.toml",
+    "requirements.txt",
+    "glama.json",
+    "smithery.yaml"
+  ]
+}

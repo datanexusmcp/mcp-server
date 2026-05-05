@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "datanexus-mcp"
+version = "1.0.0"
+description = "DataNexus MCP — AI-Ready access to 10 public data sources via the Model Context Protocol"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [{ name = "DataNexus", email = "admin@datanexusmcp.com" }]
+keywords = [
+    "mcp", "model-context-protocol", "ai", "data", "trademark", "company",
+    "standards", "nonprofit", "property", "development-data", "dns",
+    "legislation", "nutrition", "vulnerability",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Internet :: WWW/HTTP",
+]
+dependencies = [
+    "mcp[cli]>=1.27.0",
+    "pydantic>=2.0.0",
+    "redis>=5.0.0",
+    "httpx>=0.27.0",
+    "fakeredis>=2.0.0",
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
+]
+
+[project.optional-dependencies]
+# Install with: pip install datanexus-mcp[postgres]
+postgres = [
+    "asyncpg>=0.29.0",
+]
+
+[project.scripts]
+datanexus-mcp = "datanexus.main:main"
+
+[project.urls]
+Homepage = "https://datanexusmcp.com"
+Repository = "https://github.com/datanexus/mcp-server"
+Documentation = "https://datanexusmcp.com/docs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["datanexus"]
