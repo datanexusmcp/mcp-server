@@ -65,18 +65,10 @@ log = logging.getLogger("feedback.dashboard.server")
 _REDIS_URL = os.environ.get("DATANEXUS_REDIS_URL", "redis://localhost:6379")
 _PORT      = int(os.environ.get("DASHBOARD_PORT", "8101"))
 
-# Tools actually registered in main.py.
-# Update this set when a new tool-group is built AND registered in main.py.
-# T22 and future tools must NOT appear here until they are registered.
-_REGISTERED_TOOLS: frozenset = frozenset({"T04", "T10"})
-
-# Tools shown in usage panel — only tools that are registered in main.py.
-# Intersecting with _REGISTERED_TOOLS prevents future/placeholder tool IDs
-# (e.g. T22 from MCPIZE_URLS) from appearing before they are built.
-_ALL_TOOLS = sorted(
-    (FEEDBACK_ENABLED_TOOLS | set(_payment_cfg.MCPIZE_URLS.keys()))
-    & _REGISTERED_TOOLS
-)
+# Fallback tool list used only when Redis is unavailable at request time.
+# All panels use get_active_tools() for live discovery; this list is never
+# shown to users unless Redis is completely unreachable.
+_FALLBACK_TOOLS: list[str] = ["T04", "T10"]
 
 app = FastAPI(
     title="DataNexus Feedback Dashboard",
@@ -115,17 +107,50 @@ def _set_redis_client(client: Optional[redis_lib.Redis]) -> None:
     _redis_client = client
 
 
+def get_active_tools(r: Optional[redis_lib.Redis]) -> list[str]:
+    """
+    Discover tool IDs that have written telemetry by scanning Redis for
+    datanexus:calls:{tool_id}:{date} keys.
+
+    Uses SCAN (cursor-based, O(1) per step) — never KEYS* which would block
+    Redis on large keyspaces.  Falls back to _FALLBACK_TOOLS when Redis is
+    unavailable so all panels still render.
+
+    Returns a sorted list of tool ID strings, e.g. ['T04', 'T07', 'T10', ...].
+    """
+    if r is None:
+        return list(_FALLBACK_TOOLS)
+
+    tool_ids: set[str] = set()
+    try:
+        cursor = 0
+        while True:
+            cursor, keys = r.scan(cursor, match="datanexus:calls:*", count=500)
+            for k in keys:
+                # Key format: datanexus:calls:{tool_id}:{date}
+                parts = k.split(":")          # decode_responses=True → already str
+                if len(parts) >= 4:
+                    tool_ids.add(parts[2])    # parts[2] == tool_id, e.g. "T04"
+            if cursor == 0:
+                break
+    except Exception as exc:
+        log.warning("get_active_tools: Redis scan failed — %s", exc)
+
+    return sorted(tool_ids) if tool_ids else list(_FALLBACK_TOOLS)
+
+
 # ── Panel 1: Feedback Intelligence ────────────────────────────────────────────
 
 def _get_feedback_stats() -> dict[str, Any]:
     """
     Per-tool feedback breakdown: total, bugs, improvements, pending.
     Reads from feedback sorted-sets and hsets.
+    Tool list is discovered dynamically via get_active_tools().
     """
     r     = _get_redis()
     tools = {}
 
-    for tool_id in sorted(FEEDBACK_ENABLED_TOOLS):
+    for tool_id in get_active_tools(r):
         total        = 0
         bugs         = 0
         improvements = 0
@@ -209,7 +234,7 @@ def get_usage_summary() -> dict[str, Any]:
     dates = _date_range_7d()
     tools = {}
 
-    for tool_id in _ALL_TOOLS:
+    for tool_id in get_active_tools(r):
         calls_today   = 0
         sessions_today = 0
         dau_7d: list[dict] = []
@@ -305,7 +330,7 @@ def get_conversion_stats() -> dict[str, Any]:
     r       = _get_redis()
     by_tool: dict[str, Any] = {}
 
-    for tool_id in _ALL_TOOLS:
+    for tool_id in get_active_tools(r):
         entitlement_count = 0
         grace_count       = 0
         if r:
@@ -370,8 +395,8 @@ def _get_s13_stats() -> dict[str, Any]:
                     break
             pending_github_issues = gh_count
 
-            # Element 1: Weekly digest per registered tool
-            for tool_id in sorted(_REGISTERED_TOOLS):
+            # Element 1: Weekly digest per active tool (discovered from Redis)
+            for tool_id in get_active_tools(r):
                 key = f"datanexus:digest:{tool_id}:{week_str}"
                 raw = r.hgetall(key)
                 if raw:
@@ -740,7 +765,7 @@ async def api_feedback() -> JSONResponse:
     r       = _get_redis()
     results = {}
 
-    for tool_id in sorted(FEEDBACK_ENABLED_TOOLS):
+    for tool_id in get_active_tools(r):
         records = []
         if r:
             try:
