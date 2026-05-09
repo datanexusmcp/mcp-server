@@ -415,12 +415,14 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
                 staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         if not result:
-            return error_response(
+            resp = error_response(
                 ErrorCode.UPSTREAM_UNAVAILABLE,
                 "Patent data unavailable from all sources.",
                 params,
-                staleness_notices=staleness,
             )
+            if staleness:
+                resp["staleness_notices"] = staleness
+            return resp
 
         title   = result.get("title", patent_clean)
         juris_l = result.get("jurisdiction", juris_clean)
@@ -584,12 +586,14 @@ async def search_patents_by_keyword(
                 staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         if not results:
-            return error_response(
+            resp = error_response(
                 ErrorCode.NOT_FOUND,
                 f"No patent results found for '{kw_clean}'.",
                 params,
-                staleness_notices=staleness,
             )
+            if staleness:
+                resp["staleness_notices"] = staleness
+            return resp
 
         rows = []
         for r in results:
@@ -910,12 +914,14 @@ async def fetch_inventor_portfolio(
                 staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         if not results:
-            return error_response(
+            resp = error_response(
                 ErrorCode.NOT_FOUND,
                 f"No patents found for inventor '{name_clean}'.",
                 params,
-                staleness_notices=staleness,
             )
+            if staleness:
+                resp["staleness_notices"] = staleness
+            return resp
 
         rows = []
         for r in results:
