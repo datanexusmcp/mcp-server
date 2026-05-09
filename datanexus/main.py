@@ -103,6 +103,13 @@ from datanexus.tools.t11 import (
     fetch_inventor_portfolio,
 )
 
+# ── T18 data tools ────────────────────────────────────────────────────────────
+from datanexus.tools.t18 import (
+    search_contract_awards,
+    fetch_vendor_contract_history,
+    fetch_open_solicitations,
+)
+
 # ── Section 13 validation tool ───────────────────────────────────────────────
 from datanexus.tools.validation import validate_tool_output
 
@@ -208,6 +215,11 @@ app.tool()(search_patents_by_keyword)
 app.tool()(fetch_patent_citations)
 app.tool()(fetch_inventor_portfolio)
 
+# ── Register T18 data tools ───────────────────────────────────────────────────
+app.tool()(search_contract_awards)
+app.tool()(fetch_vendor_contract_history)
+app.tool()(fetch_open_solicitations)
+
 # ── Register shared infrastructure tools (once — not per-tool duplicates) ─────
 app.tool()(report_feedback)
 app.tool()(report_mcpize_link)
@@ -222,7 +234,7 @@ async def health(request: Request) -> JSONResponse:
     return JSONResponse({
         "status": "ok",
         "service": "datanexus-mcp",
-        "tools": 23,
+        "tools": 26,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -243,6 +255,6 @@ async def mcp_manifest(request: Request) -> JSONResponse:
 if __name__ == "__main__":
     logger.info(
         "DataNexus MCP starting — transport=streamable-http — "
-        "23 tools registered (T04×3, T10×5, T22×4, T07×4, T11×4, Shared×2, Section13×1)"
+        "26 tools registered (T04×3, T10×5, T22×4, T07×4, T11×4, T18×3, Shared×2, Section13×1)"
     )
     app.run(transport="streamable-http", host="0.0.0.0", port=8000)

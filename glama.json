@@ -1,6 +1,6 @@
 {
   "name": "DataNexus MCP",
-  "description": "AI-Ready access to public data intelligence via the Model Context Protocol. 23 tools across nonprofit data, OSS vulnerability intelligence, professional licences, domain & DNS, and patent data. Token-efficient AI-Ready Markdown output. Verified source. No API key required for most tools.",
+  "description": "AI-Ready access to public data intelligence via the Model Context Protocol. 26 tools across nonprofit data, OSS vulnerability intelligence, professional licences, domain & DNS, patent data, and government contracting. Token-efficient AI-Ready Markdown output. Verified source. No API key required for most tools.",
   "url": "https://datanexusmcp.com/mcp",
   "transport": "streamable-http",
   "remote": true,
@@ -33,6 +33,10 @@
     {
       "name": "fetch_patent_by_number",
       "description": "Fetch patent details by number from EPO, USPTO, or WIPO. Returns title, abstract, inventors, and citation count in AI-Ready Markdown. Verified source: EPO OPS + USPTO PatentsView. Token-efficient."
+    },
+    {
+      "name": "search_contract_awards",
+      "description": "Search government contract awards by keyword, agency, and date range across US (USASpending.gov + SAM.gov), EU (TED), and UK (Find-a-Tender). Returns award amounts, vendors, NAICS codes, and contract types in AI-Ready Markdown. Verified source: USASpending.gov. Token-efficient."
     },
     {
       "name": "validate_tool_output",
