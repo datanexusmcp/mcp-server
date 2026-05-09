@@ -548,3 +548,21 @@ Rule S13-5: FeedbackRecord.classification is
   feedback_classifier.py enforces this.
   Any code violating this rule must be rejected
   in code review.
+
+## Sprint Discipline — Deploy Rules
+
+Rule D1: Never push to git or deploy to Hetzner
+  mid-sprint. Code stays local until ALL smoke
+  tests for that tool pass AND operator confirms.
+  One tool = one confirmation = one push.
+  No batching incomplete tools into a single push.
+
+Rule D2: Never register a tool in main.py on
+  Hetzner before its smoke tests pass locally.
+  Registration in main.py on Hetzner is the
+  final step after confirmation — not during build.
+
+Rule D3: glama.json tool count must be updated
+  in the same commit as every tool registration.
+  Never let glama.json description fall behind
+  the actual registered tool count.
