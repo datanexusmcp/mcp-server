@@ -376,7 +376,7 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
                 except Exception as exc:
                     log.warning("EPO fetch_patent_by_number failed: %s", exc)
                     record_failure("epo_ops")
-                    staleness.append(get_staleness_notice("epo_ops"))
+                    staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
         # ── Fallback: USPTO PatentsView (US jurisdiction or EPO failure) ─────
         if not result and not is_tripped("patentsview"):
@@ -412,7 +412,7 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
             except Exception as exc:
                 log.warning("PatentsView fetch_patent_by_number failed: %s", exc)
                 record_failure("patentsview")
-                staleness.append(get_staleness_notice("patentsview"))
+                staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         if not result:
             return error_response(
@@ -544,7 +544,7 @@ async def search_patents_by_keyword(
                 except Exception as exc:
                     log.warning("EPO search_patents_by_keyword failed: %s", exc)
                     record_failure("epo_ops")
-                    staleness.append(get_staleness_notice("epo_ops"))
+                    staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
         # ── USPTO PatentsView fallback ────────────────────────────────────────
         if not results and not is_tripped("patentsview"):
@@ -581,7 +581,7 @@ async def search_patents_by_keyword(
             except Exception as exc:
                 log.warning("PatentsView search_patents_by_keyword failed: %s", exc)
                 record_failure("patentsview")
-                staleness.append(get_staleness_notice("patentsview"))
+                staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         if not results:
             return error_response(
@@ -710,7 +710,7 @@ async def fetch_patent_citations(
                 except Exception as exc:
                     log.warning("EPO fetch_patent_citations failed: %s", exc)
                     record_failure("epo_ops")
-                    staleness.append(get_staleness_notice("epo_ops"))
+                    staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
         # ── PatentsView citations (US) ────────────────────────────────────────
         if juris_clean == "US" and not is_tripped("patentsview"):
@@ -752,7 +752,7 @@ async def fetch_patent_citations(
             except Exception as exc:
                 log.warning("PatentsView fetch_patent_citations failed: %s", exc)
                 record_failure("patentsview")
-                staleness.append(get_staleness_notice("patentsview"))
+                staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         cites_md = "\n".join(
             f"- {c.get('patent_number', '')} {c.get('title', '')}"
@@ -865,7 +865,7 @@ async def fetch_inventor_portfolio(
                 except Exception as exc:
                     log.warning("EPO fetch_inventor_portfolio failed: %s", exc)
                     record_failure("epo_ops")
-                    staleness.append(get_staleness_notice("epo_ops"))
+                    staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
         # ── USPTO PatentsView inventor search ─────────────────────────────────
         if not results and not is_tripped("patentsview"):
@@ -907,7 +907,7 @@ async def fetch_inventor_portfolio(
             except Exception as exc:
                 log.warning("PatentsView fetch_inventor_portfolio failed: %s", exc)
                 record_failure("patentsview")
-                staleness.append(get_staleness_notice("patentsview"))
+                staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         if not results:
             return error_response(
