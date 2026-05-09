@@ -21,7 +21,8 @@ services:
     env_file: /app/.env
     environment:
       DATANEXUS_REDIS_URL: redis://redis:6379
-      DATANEXUS_DB_URL: postgresql://datanexus:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/datanexus
+      # DATANEXUS_DB_URL must NOT be set here — env_file (.env) owns it.
+      # Hardcoding it here would override .env and break PG auth (user mismatch).
     depends_on:
       - redis
       - postgres
