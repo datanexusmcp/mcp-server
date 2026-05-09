@@ -201,6 +201,14 @@ app = FastMCP(
         "search_patents_by_keyword: search EP/US/WO patents by keyword and date. "
         "fetch_patent_citations: forward and backward citations for a patent. "
         "fetch_inventor_portfolio: patent portfolio for an inventor, optionally by assignee. "
+        "T18: Government Contracting & Procurement — USASpending.gov + SAM.gov + EU TED + UK Find-a-Tender. "
+        "search_contract_awards: search federal contract awards by keyword and agency. "
+        "fetch_vendor_contract_history: contract history for a specific vendor. "
+        "fetch_open_solicitations: open bid opportunities matching a keyword. "
+        "T19: Regulatory Docket & Comment Tracking — Regulations.gov + Federal Register + EU Have Your Say. "
+        "search_open_rulemakings: open rulemakings and comment periods. "
+        "fetch_docket_details: full docket details by ID. "
+        "fetch_federal_register_notices: recent Federal Register notices by agency. "
         "All responses include query_hash, schema_version, data_as_of, ingest_healthy."
     ),
 )
