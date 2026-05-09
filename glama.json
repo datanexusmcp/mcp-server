@@ -1,6 +1,6 @@
 {
   "name": "DataNexus MCP",
-  "description": "AI-Ready access to public data intelligence via the Model Context Protocol. 26 tools across nonprofit data, OSS vulnerability intelligence, professional licences, domain & DNS, patent data, and government contracting. Token-efficient AI-Ready Markdown output. Verified source. No API key required for most tools.",
+  "description": "AI-Ready access to public data intelligence via the Model Context Protocol. 29 tools across nonprofit data, OSS vulnerability intelligence, professional licences, domain & DNS, patent data, government contracting, and regulatory dockets. Token-efficient AI-Ready Markdown output. Verified source. No API key required for most tools.",
   "url": "https://datanexusmcp.com/mcp",
   "transport": "streamable-http",
   "remote": true,
@@ -37,6 +37,10 @@
     {
       "name": "search_contract_awards",
       "description": "Search government contract awards by keyword, agency, and date range across US (USASpending.gov + SAM.gov), EU (TED), and UK (Find-a-Tender). Returns award amounts, vendors, NAICS codes, and contract types in AI-Ready Markdown. Verified source: USASpending.gov. Token-efficient."
+    },
+    {
+      "name": "search_open_rulemakings",
+      "description": "Search open rulemakings and public comment periods on Regulations.gov and Federal Register. Returns docket title, agency, comment deadline, and docket ID in AI-Ready Markdown. Verified source: Regulations.gov + Federal Register API. Token-efficient."
     },
     {
       "name": "validate_tool_output",
