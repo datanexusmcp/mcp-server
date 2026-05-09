@@ -1,9 +1,11 @@
 {
   "name": "DataNexus MCP",
-  "description": "AI-Ready access to public data intelligence via the Model Context Protocol. 29 tools across nonprofit data, OSS vulnerability intelligence, professional licences, domain & DNS, patent data, government contracting, and regulatory dockets. Token-efficient AI-Ready Markdown output. Verified source. No API key required for most tools.",
+  "description": "AI-Ready access to public data intelligence. 29 tools across nonprofit data, OSS vulnerability intelligence, professional licences, domain & DNS, patent data, government contracting, and regulatory dockets. Token-efficient AI-Ready Markdown. Verified source. No API key required for most tools.",
   "url": "https://datanexusmcp.com/mcp",
   "transport": "streamable-http",
   "remote": true,
+  "license": "MIT",
+  "homepage": "https://datanexusmcp.com",
   "categories": [
     "Data & Analytics",
     "Government & Public Data",
@@ -11,40 +13,38 @@
     "Security Research",
     "Developer Tools"
   ],
-  "license": "MIT",
-  "homepage": "https://datanexusmcp.com",
   "tools": [
     {
       "name": "fetch_nonprofit_by_ein",
-      "description": "Fetch IRS 990 data for any US nonprofit by EIN. Returns revenue, expenses, and mission in AI-Ready Markdown. Verified source: IRS EO BMF. Token-efficient."
+      "description": "Fetch IRS 990 data for any US nonprofit by EIN. Returns revenue, expenses and mission in AI-Ready Markdown. Verified source: IRS EO BMF. Token-efficient."
     },
     {
       "name": "fetch_package_vulnerabilities",
-      "description": "Fetch all known CVEs for any open source package across PyPI, npm, Maven, Go, Cargo. Returns severity, CVSS score, and fixed versions in AI-Ready Markdown. Verified source: Google OSV.dev + NIST NVD. Token-efficient."
+      "description": "Fetch all known CVEs for any open source package across PyPI, npm, Maven, Go, Cargo. Returns severity, CVSS score and fixed versions in AI-Ready Markdown. Verified source: Google OSV.dev + NIST NVD. Token-efficient."
     },
     {
       "name": "fetch_npi_provider",
-      "description": "Fetch NPI registration details for any US healthcare provider. Returns speciality, taxonomy, and status in AI-Ready Markdown. Verified source: NPPES NPI Registry (CMS). Token-efficient."
+      "description": "Fetch NPI registration for any US healthcare provider. Returns speciality, taxonomy and status in AI-Ready Markdown. Verified source: NPPES NPI Registry. Token-efficient."
     },
     {
       "name": "fetch_domain_rdap",
-      "description": "Fetch domain registration details via IANA RDAP. Returns registrar, expiry date, and nameservers in AI-Ready Markdown. Verified source: IANA RDAP. Token-efficient."
+      "description": "Fetch domain registration via IANA RDAP. Returns registrar, expiry and nameservers in AI-Ready Markdown. Verified source: IANA RDAP. Token-efficient."
     },
     {
       "name": "fetch_patent_by_number",
-      "description": "Fetch patent details by number from EPO, USPTO, or WIPO. Returns title, abstract, inventors, and citation count in AI-Ready Markdown. Verified source: EPO OPS + USPTO PatentsView. Token-efficient."
+      "description": "Fetch patent details from EPO, USPTO or WIPO by number. Returns title, abstract, inventors and citations in AI-Ready Markdown. Verified source: EPO OPS + USPTO. Token-efficient."
     },
     {
       "name": "search_contract_awards",
-      "description": "Search government contract awards by keyword, agency, and date range across US (USASpending.gov + SAM.gov), EU (TED), and UK (Find-a-Tender). Returns award amounts, vendors, NAICS codes, and contract types in AI-Ready Markdown. Verified source: USASpending.gov. Token-efficient."
+      "description": "Search government contract awards by keyword and agency. Returns award amounts, vendors and NAICS codes in AI-Ready Markdown. Verified source: USASpending.gov + SAM.gov. Token-efficient."
     },
     {
       "name": "search_open_rulemakings",
-      "description": "Search open rulemakings and public comment periods on Regulations.gov and Federal Register. Returns docket title, agency, comment deadline, and docket ID in AI-Ready Markdown. Verified source: Regulations.gov + Federal Register API. Token-efficient."
+      "description": "Search open rulemakings and comment periods on Regulations.gov and Federal Register. Returns docket title, agency and deadline in AI-Ready Markdown. Verified source: Regulations.gov. Token-efficient."
     },
     {
       "name": "validate_tool_output",
-      "description": "Validate any DataNexus tool response for data quality anomalies. Two-layer validation: deterministic rules + Haiku AI review. Auto-files feedback on confirmed issues. AI-Ready output. Token-efficient. Verified source: DataNexus internal validator."
+      "description": "Validate any DataNexus tool response for data quality anomalies. Two-layer validation: deterministic rules plus Haiku AI review. Auto-files feedback on confirmed issues. AI-Ready output. Verified source: DataNexus internal validator. Token-efficient."
     }
   ]
 }
