@@ -1,7 +1,7 @@
 {
   "name": "@datanexusmcp/mcp-server",
-  "version": "1.0.5",
-  "description": "DataNexus MCP — AI-Ready access to US/UK nonprofit data (IRS EO BMF, IRS TEOS, UK Charity Commission) and OSS vulnerability intelligence (OSV.dev, NIST NVD, deps.dev). 11 tools including validate_tool_output (two-layer data quality validation). No API key required.",
+  "version": "2.0.0",
+  "description": "DataNexus MCP — AI-Ready access to public data via 29 tools: US/UK nonprofits, OSS vulnerability intelligence, professional licence verification (NPI/FINRA/SAM.gov), domain & DNS intelligence, global patent data (EPO/USPTO), government contracting (USASpending/SAM.gov/EU TED), and regulatory dockets (Regulations.gov/Federal Register). No API key required for most tools.",
   "keywords": [
     "mcp",
     "model-context-protocol",
