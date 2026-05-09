@@ -1,9 +1,8 @@
 # DataNexus MCP
 
-AI-Ready access to US/UK nonprofit data and OSS vulnerability intelligence
-via the [Model Context Protocol](https://modelcontextprotocol.io).
+AI-Ready access to public data intelligence via the [Model Context Protocol](https://modelcontextprotocol.io).
 
-**10 tools. No API key required. Token-efficient AI-Ready Markdown.**
+**29 tools. No API key required for most tools. Token-efficient AI-Ready Markdown.**
 
 ---
 
@@ -30,7 +29,7 @@ npx -y @datanexusmcp/mcp-server
 
 ---
 
-## Tools (10 total)
+## Tools (29 total)
 
 ### T04 — US/UK Nonprofit Data
 
@@ -50,12 +49,56 @@ npx -y @datanexusmcp/mcp-server
 | `audit_sbom_vulnerabilities` | Audit a CycloneDX or SPDX SBOM — per-component vulnerability count and severity | OSV.dev batch API |
 | `fetch_package_licence` | SPDX licence identifier for any package version — use before adding a commercial dep | deps.dev (Google) |
 
+### T22 — Professional Licence Verification
+
+| Tool | Description | Source |
+|------|-------------|--------|
+| `fetch_npi_provider` | NPI registration for any US healthcare provider — name, taxonomy, speciality, status | NPPES NPI Registry (CMS) |
+| `search_npi_by_name` | Search NPI registry by provider name with optional state and speciality filters | NPPES NPI Registry (CMS) |
+| `fetch_finra_broker` | FINRA BrokerCheck registration by CRD number — licences, disclosures, employment history | FINRA BrokerCheck |
+| `check_sam_exclusion` | Federal exclusions list check by name or EIN — debarred and suspended entities | SAM.gov |
+
+### T07 — Domain & DNS Intelligence
+
+| Tool | Description | Source |
+|------|-------------|--------|
+| `fetch_domain_rdap` | WHOIS-replacement RDAP lookup — registrar, expiry, nameservers, status flags | IANA RDAP |
+| `fetch_ssl_certificate_chain` | Certificate Transparency log certificates for a domain — issuer, SANs, validity | crt.sh |
+| `fetch_dns_records` | A / AAAA / MX / TXT / NS / CNAME records for any domain | Cloudflare DoH |
+| `fetch_domain_history` | Historical certificate issuance from CT logs — track domain ownership changes | crt.sh |
+
+### T11 — Global Patent Intelligence
+
+| Tool | Description | Source |
+|------|-------------|--------|
+| `fetch_patent_by_number` | Full bibliographic data for a patent — title, abstract, inventors, assignee, citations | EPO OPS + USPTO PatentsView |
+| `search_patents_by_keyword` | Search EP / US / WO patents by keyword and date range | EPO OPS + USPTO PatentsView |
+| `fetch_patent_citations` | Forward and backward citations for a patent — who cited it and what it cites | EPO OPS |
+| `fetch_inventor_portfolio` | Patent portfolio for an inventor, optionally filtered by assignee | USPTO PatentsView |
+
+### T18 — Government Contracting & Procurement
+
+| Tool | Description | Source |
+|------|-------------|--------|
+| `search_contract_awards` | Search federal contract awards by keyword and agency — amounts, vendors, NAICS codes | USASpending.gov + SAM.gov |
+| `fetch_vendor_contract_history` | Full contract history for a specific vendor — award totals, agencies, contract types | USASpending.gov |
+| `fetch_open_solicitations` | Open bid opportunities matching a keyword — due dates, set-aside types, agencies | SAM.gov + EU TED + UK Find-a-Tender |
+
+### T19 — Regulatory Docket & Comment Tracking
+
+| Tool | Description | Source |
+|------|-------------|--------|
+| `search_open_rulemakings` | Open rulemakings and public comment periods — docket title, agency, comment deadline | Regulations.gov + Federal Register |
+| `fetch_docket_details` | Full docket details by ID — documents, comments, summary, agency contact | Regulations.gov |
+| `fetch_federal_register_notices` | Recent Federal Register notices by agency — type, publication date, abstract | Federal Register API |
+
 ### Shared Infrastructure
 
 | Tool | Description |
 |------|-------------|
 | `report_feedback` | Report an incorrect, incomplete, or stale tool result — always returns `{status: 'recorded'}` |
 | `report_mcpize_link` | Check subscription status and retrieve upgrade URL if required |
+| `validate_tool_output` | Validate any DataNexus tool response for data quality anomalies — deterministic rules + Haiku AI review |
 
 ---
 
@@ -87,9 +130,9 @@ Only needed for self-hosted deployments. The hosted server at
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATANEXUS_REDIS_URL` | `redis://localhost:6379` | Redis for caching and feedback |
+| `DATANEXUS_REDIS_URL` | `redis://localhost:6379` | Redis for caching and telemetry |
 
-No API keys are required for T04 or T10 — all upstream sources are public.
+No API keys are required for most tools — all primary upstream sources are public.
 
 ---
 
