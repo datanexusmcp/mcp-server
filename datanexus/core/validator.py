@@ -39,6 +39,7 @@ log = logging.getLogger("datanexus.core.validator")
 _REQUIRED_FIELDS: dict[str, list[str]] = {
     "T04": ["name"],
     "T10": ["package", "ecosystem"],
+    "T22": ["npi_number"],  # or ["name"] for search — validated at request time
 }
 
 
@@ -80,6 +81,8 @@ def validate_payload(
             cleaned, issues = _apply_t04_rules(cleaned, issues)
         elif tool_id == "T10":
             cleaned, issues = _apply_t10_rules(cleaned, issues)
+        elif tool_id == "T22":
+            cleaned, issues = _apply_t22_rules(cleaned, issues)
 
         return (cleaned, issues)
 
@@ -161,6 +164,29 @@ def _apply_t10_rules(
         issues.append(f"incomplete_records:{incomplete_count}")
 
     cleaned["vulns"] = vulns
+    return (cleaned, issues)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T22 RULES
+# ══════════════════════════════════════════════════════════════════════════════
+
+_NPI_RE = re.compile(r"^\d{10}$")
+
+
+def _apply_t22_rules(
+    cleaned: dict,
+    issues: list[str],
+) -> "tuple[dict, list[str]]":
+    """Apply T22 validation rules."""
+
+    # T22-1: NPI must be exactly 10 digits
+    npi = cleaned.get("npi_number", cleaned.get("npi", ""))
+    npi_str = str(npi).replace("-", "").strip() if npi else ""
+    if npi_str and not _NPI_RE.match(npi_str):
+        cleaned["malformed_npi"] = True
+        issues.append("malformed_npi")
+
     return (cleaned, issues)
 
 

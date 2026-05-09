@@ -1,8 +1,8 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/glama.json",
   "name": "DataNexus MCP",
-  "description": "AI-Ready access to public data via MCP. T04 — US/UK Nonprofits: look up any US nonprofit by EIN (IRS EO BMF + IRS TEOS), search by name, or retrieve UK charity registration data (Charity Commission England and Wales). T10 — OSS Vulnerability Intelligence: CVEs per package/version (Google OSV.dev), full dependency graphs (deps.dev), CVE detail with CVSS scores (NIST NVD), CycloneDX/SPDX SBOM auditing, and SPDX licence lookups. All responses are token-efficient AI-Ready Markdown with verified source URLs, fetch timestamps, and SHA-256 integrity hashes. Cache-first, 24-hour TTL. No API key required for T04 or T10.",
-  "version": "1.0.5",
+  "description": "AI-Ready access to public data via MCP. T04 — US/UK Nonprofits: EIN lookup (IRS EO BMF + TEOS), name search, UK Charity Commission. T10 — OSS Vulnerability Intelligence: CVEs per package/version (OSV.dev), dependency graphs (deps.dev), CVE detail (NIST NVD), CycloneDX/SPDX SBOM auditing, SPDX licence lookups. T22 — Professional Licence Verification: NPI healthcare provider lookup (NPPES), FINRA BrokerCheck by CRD number, SAM.gov federal exclusions check. T07 — Domain & DNS Intelligence: RDAP lookup (IANA), SSL Certificate Transparency logs (crt.sh), DNS records via Cloudflare DoH, domain history from CT logs. T11 — Global Patent Intelligence: patent lookup by number (EPO OPS + USPTO PatentsView), keyword search, citation graphs, inventor portfolio. All responses are token-efficient AI-Ready Markdown with verified source URLs, fetch timestamps, and SHA-256 integrity hashes. Cache-first.",
+  "version": "1.0.6",
   "license": "MIT",
   "homepage": "https://datanexusmcp.com",
   "repository": "https://github.com/datanexusmcp/mcp-server",
@@ -11,13 +11,13 @@
     "email": "admin@datanexusmcp.com",
     "url": "https://datanexusmcp.com"
   },
+  "installationIdentifier": "@datanexusmcp/mcp-server",
   "categories": [
-    "data",
-    "research",
-    "legal",
-    "finance",
-    "government",
-    "security"
+    "Data & Analytics",
+    "Government & Public Data",
+    "Open Data",
+    "Security Research",
+    "Developer Tools"
   ],
   "keywords": [
     "nonprofit lookup",
@@ -38,16 +38,24 @@
     "NIST NVD",
     "CVSS",
     "package licence",
+    "NPI registry",
+    "NPPES",
+    "FINRA BrokerCheck",
+    "SAM.gov exclusions",
+    "professional licence",
+    "domain RDAP",
+    "DNS lookup",
+    "certificate transparency",
+    "patent search",
+    "EPO OPS",
+    "USPTO PatentsView",
+    "WIPO",
     "AI-Ready Markdown",
     "verified source",
     "token-efficient",
     "SHA-256 integrity",
     "cache-first",
-    "no API key",
-    "data quality validation",
-    "Two-layer validation",
-    "anomaly detection",
-    "validate tool output"
+    "data quality validation"
   ],
   "tools": [
     {
@@ -60,7 +68,7 @@
     },
     {
       "name": "fetch_charity_uk",
-      "description": "Fetch UK registered charity details from the Charity Commission. Returns registration status, income, expenditure, and activities in AI-Ready Markdown. Verified source: UK Charity Commission (Open Government Licence v3.0). For due diligence and research. Token-efficient. Example: fetch_charity_uk('219099'). No API key required."
+      "description": "Fetch UK registered charity details from the Charity Commission. Returns registration status, income, expenditure, and activities in AI-Ready Markdown. Verified source: UK Charity Commission (Open Government Licence v3.0). Token-efficient. Example: fetch_charity_uk('219099'). No API key required."
     },
     {
       "name": "fetch_package_vulnerabilities",
@@ -68,7 +76,7 @@
     },
     {
       "name": "fetch_dependency_graph",
-      "description": "Fetch the full transitive dependency graph for a package version. Returns direct and transitive dependencies in AI-Ready Markdown. Verified source: deps.dev (Google Open Source Insights). Data freshness: 1-hour cache. Hard 8-second timeout — never hangs silently. Token-efficient. No API key required."
+      "description": "Fetch the full transitive dependency graph for a package version. Returns direct and transitive dependencies in AI-Ready Markdown. Verified source: deps.dev (Google Open Source Insights). Hard 8-second timeout. Token-efficient. No API key required."
     },
     {
       "name": "fetch_cve_detail",
@@ -76,27 +84,75 @@
     },
     {
       "name": "audit_sbom_vulnerabilities",
-      "description": "Audit a CycloneDX or SPDX Software Bill of Materials against OSV.dev. Call this when a user supplies an SBOM and wants to know which components have known vulnerabilities. Returns per-component vulnerability count, highest severity, and advisory links in AI-Ready Markdown. Verified source: OSV.dev batch query API (Google). Token-efficient. No API key required."
+      "description": "Audit a CycloneDX or SPDX Software Bill of Materials against OSV.dev. Returns per-component vulnerability count, highest severity, and advisory links in AI-Ready Markdown. Verified source: OSV.dev batch query API (Google). Token-efficient. No API key required."
     },
     {
       "name": "fetch_package_licence",
-      "description": "Fetch the declared software licence for any open source package version. Returns the SPDX licence identifier (e.g. MIT, Apache-2.0, GPL-3.0) in AI-Ready Markdown. Use this before including a dependency in a commercial project to verify licence compatibility. Verified source: deps.dev (Google Open Source Insights). Data freshness: 1-hour cache. Token-efficient. No API key required."
+      "description": "Fetch the declared SPDX licence for any open source package version. Returns the licence identifier (e.g. MIT, Apache-2.0, GPL-3.0) in AI-Ready Markdown. Verified source: deps.dev (Google Open Source Insights). Token-efficient. No API key required."
+    },
+    {
+      "name": "fetch_npi_provider",
+      "description": "Look up any US healthcare provider by NPI number. Returns provider name, enumeration type, taxonomy, practice address, and status in AI-Ready Markdown. Verified source: NPPES NPI Registry (CMS public domain). Token-efficient. Example: fetch_npi_provider('1234567890'). No API key required."
+    },
+    {
+      "name": "search_npi_by_name",
+      "description": "Search the NPPES NPI Registry by provider name with optional state and speciality filters. Returns up to 10 matching providers in AI-Ready Markdown. Verified source: NPPES NPI Registry (CMS). Token-efficient. No API key required."
+    },
+    {
+      "name": "fetch_finra_broker",
+      "description": "Look up FINRA BrokerCheck registration data by CRD number. Returns registration status, qualifications, and disclosures in AI-Ready Markdown. Verified source: FINRA BrokerCheck public registry. Token-efficient. Example: fetch_finra_broker('1234567')."
+    },
+    {
+      "name": "check_sam_exclusion",
+      "description": "Check the SAM.gov federal exclusions list by name or EIN. Returns exclusion status, agency, and effective dates in AI-Ready Markdown. Verified source: SAM.gov public exclusions database. Token-efficient. Example: check_sam_exclusion('Acme Corp') or check_sam_exclusion('12-3456789')."
+    },
+    {
+      "name": "fetch_domain_rdap",
+      "description": "Fetch domain registration details via IANA RDAP (modern WHOIS replacement). Returns registrar, registration date, expiry date, nameservers, and registrant info in AI-Ready Markdown. Verified source: IANA RDAP. Data freshness: 4-hour cache. Token-efficient. No API key required."
+    },
+    {
+      "name": "fetch_ssl_certificate_chain",
+      "description": "Fetch SSL/TLS certificate transparency log entries for a domain from crt.sh. Returns certificate chain with issuer, validity dates, and common names in AI-Ready Markdown. Verified source: crt.sh Certificate Transparency. Token-efficient. No API key required."
+    },
+    {
+      "name": "fetch_dns_records",
+      "description": "Fetch DNS records for a domain via Cloudflare DNS over HTTPS. Supports A, AAAA, MX, TXT, NS, CNAME, SOA, CAA, and SRV record types. Returns AI-Ready Markdown. Verified source: Cloudflare DoH. Token-efficient. No API key required."
+    },
+    {
+      "name": "fetch_domain_history",
+      "description": "Fetch historical SSL/TLS certificate issuance for a domain from Certificate Transparency logs. Returns chronological cert history with issuers and validity periods in AI-Ready Markdown. Verified source: crt.sh. Token-efficient. No API key required."
+    },
+    {
+      "name": "fetch_patent_by_number",
+      "description": "Fetch bibliographic data for a patent by number and jurisdiction (EP, US, WO). Returns title, applicants, inventors, IPC classification, and publication date in AI-Ready Markdown. Verified sources: EPO OPS, USPTO PatentsView. Token-efficient."
+    },
+    {
+      "name": "search_patents_by_keyword",
+      "description": "Search patents by keyword across EP, US, or WO patent databases. Returns up to 10 matching records with title, applicant, publication date, and IPC codes in AI-Ready Markdown. Verified sources: EPO OPS, USPTO PatentsView. Token-efficient."
+    },
+    {
+      "name": "fetch_patent_citations",
+      "description": "Fetch forward and backward citations for a patent. Returns lists of citing and cited patents with titles and dates in AI-Ready Markdown. Verified sources: EPO OPS, USPTO PatentsView. Token-efficient."
+    },
+    {
+      "name": "fetch_inventor_portfolio",
+      "description": "Fetch the patent portfolio for an inventor, optionally filtered by assignee. Returns patent list with titles, publication dates, and jurisdictions in AI-Ready Markdown. Verified sources: EPO OPS, USPTO PatentsView. Token-efficient."
     },
     {
       "name": "report_feedback",
-      "description": "Report a data quality issue with any DataNexus tool response. Call this after receiving a result that appears incorrect, incomplete, or out of date. Parameters: tool_id ('T04' or 'T10'), query_hash (from the tool response), signal (incorrect_data, missing_field, stale_data, not_useful, wrong_entity), comment (optional). Returns {'status': 'recorded'} always. Verified source: DataNexus feedback pipeline. Token-efficient."
+      "description": "Report a data quality issue with any DataNexus tool response. Parameters: tool_id ('T04', 'T10', 'T22', 'T07', or 'T11'), query_hash (from the tool response), signal (incorrect_data, missing_field, stale_data, not_useful, wrong_entity), comment (optional). Returns {'status': 'recorded'} always. Token-efficient."
     },
     {
       "name": "report_mcpize_link",
-      "description": "Check whether DataNexus tools require a paid subscription and retrieve the upgrade URL if so. Call this when a user asks about pricing, access limits, or subscription status. Returns status='free', status='subscription_required' with upgrade_url, or status='not_configured'. Verified source: DataNexus payment configuration. Token-efficient."
+      "description": "Check whether DataNexus tools require a paid subscription and retrieve the upgrade URL if so. Returns status='free' or upgrade_url. Token-efficient."
     },
     {
       "name": "validate_tool_output",
-      "description": "Validate any DataNexus tool response for data quality anomalies. Two-layer validation: deterministic rules (always run, query-time) plus Haiku AI review (only on ambiguous findings). Auto-files feedback on consensus issues — both layers must agree before filing. Never raises and never blocks — always returns a structured result. Verified source: DataNexus internal validator. AI-Ready output. Token-efficient. Two-layer validation architecture for data quality coverage across T04 and T10. Example: validate_tool_output(tool_id='T10', query_hash='3d1697...', response_json=json.dumps(tool_response))."
+      "description": "Validate any DataNexus tool response for data quality anomalies. Two-layer validation: deterministic rules plus Haiku AI review on ambiguous findings. Never raises and never blocks — always returns a structured result. Token-efficient."
     }
   ],
   "config": {
-    "transport": "http",
+    "transport": "streamable-http",
     "url": "https://datanexusmcp.com/mcp"
   },
   "installation": {
@@ -133,9 +189,54 @@
       "name": "deps.dev (Google)",
       "url": "https://api.deps.dev",
       "auth": "none"
+    },
+    {
+      "name": "NPPES NPI Registry (CMS)",
+      "url": "https://npiregistry.cms.hhs.gov/api/",
+      "auth": "none"
+    },
+    {
+      "name": "FINRA BrokerCheck",
+      "url": "https://api.finra.org/data/group/registration/name/brokerCheck",
+      "auth": "api_key"
+    },
+    {
+      "name": "SAM.gov Exclusions",
+      "url": "https://api.sam.gov/exclusions/v1/api",
+      "auth": "api_key"
+    },
+    {
+      "name": "IANA RDAP",
+      "url": "https://data.iana.org/rdap/dns.json",
+      "auth": "none"
+    },
+    {
+      "name": "crt.sh Certificate Transparency",
+      "url": "https://crt.sh/",
+      "auth": "none"
+    },
+    {
+      "name": "Cloudflare DNS over HTTPS",
+      "url": "https://cloudflare-dns.com/dns-query",
+      "auth": "none"
+    },
+    {
+      "name": "EPO Open Patent Services",
+      "url": "https://ops.epo.org/3.2/rest-services",
+      "auth": "oauth2"
+    },
+    {
+      "name": "USPTO PatentsView",
+      "url": "https://api.patentsview.org/patents/query",
+      "auth": "none"
+    },
+    {
+      "name": "WIPO PATENTSCOPE",
+      "url": "https://patentscope.wipo.int/search/api/patents",
+      "auth": "none"
     }
   ],
-  "tools_count": 11,
+  "tools_count": 23,
   "cache_ttl_seconds": 86400,
   "integrity": "sha256",
   "free_tier": true

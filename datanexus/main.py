@@ -1,20 +1,26 @@
 """
-DataNexus MCP — Sprint 1 + Section 13 entry point.
+DataNexus MCP — Sprint 1 + Section 13 + Sprint 2 (T22, T07, T11) entry point.
 
 Spec:      DataNexus_MCP_Spec_v7_4.docx (authoritative)
 Transport: streamable-http (CLAUDE.md rule — SSE deprecated April 2026)
 Server:    datanexusmcp.com  |  Hetzner CAX11  |  178.104.251.70
 
-Registered tools (11 total):
+Registered tools (23 total after T11):
   T04 (3): fetch_nonprofit_by_ein, search_nonprofits_by_name, fetch_charity_uk
   T10 (5): fetch_package_vulnerabilities, fetch_dependency_graph,
            fetch_cve_detail, audit_sbom_vulnerabilities, fetch_package_licence
+  T22 (4): fetch_npi_provider, search_npi_by_name,
+           fetch_finra_broker, check_sam_exclusion
+  T07 (4): fetch_domain_rdap, fetch_ssl_certificate_chain,
+           fetch_dns_records, fetch_domain_history
+  T11 (4): fetch_patent_by_number, search_patents_by_keyword,
+           fetch_patent_citations, fetch_inventor_portfolio
   Shared (2): report_feedback, report_mcpize_link
-  New (1):    validate_tool_output
+  S13 (1):    validate_tool_output
 
 Phase 4: report_feedback delegates to feedback.collector.report_feedback.
 Phase 5: report_mcpize_link delegates to payment.tools.report_mcpize_link.
-         @verify_entitlement sourced from payment.entitlement (t04.py, t10.py).
+         @verify_entitlement sourced from payment.entitlement (tool modules).
          report_feedback and report_mcpize_link are registered ONCE as shared
          infrastructure — tool_id parameter routes to the correct data source.
 
@@ -28,15 +34,24 @@ Phase 5: report_mcpize_link delegates to payment.tools.report_mcpize_link.
 #   T3: schema_monitor.assess_schema_change()
 #   T4: digest_generator.generate_weekly_digest()
 #
-# Tool count after Section 13: 11 total
+# Tool count after Sprint 1 + S13: 11
+# Tool count after Sprint 2 T22:   15
+# Tool count after Sprint 2 T07:   19
+# Tool count after Sprint 2 T11:   23
 #   T04: fetch_nonprofit_by_ein,
 #        search_nonprofits_by_name, fetch_charity_uk
 #   T10: fetch_package_vulnerabilities,
 #        fetch_dependency_graph, fetch_cve_detail,
 #        audit_sbom_vulnerabilities,
 #        fetch_package_licence
+#   T22: fetch_npi_provider, search_npi_by_name,
+#        fetch_finra_broker, check_sam_exclusion
+#   T07: fetch_domain_rdap, fetch_ssl_certificate_chain,
+#        fetch_dns_records, fetch_domain_history
+#   T11: fetch_patent_by_number, search_patents_by_keyword,
+#        fetch_patent_citations, fetch_inventor_portfolio
 #   Shared: report_feedback, report_mcpize_link
-#   New:    validate_tool_output
+#   S13:    validate_tool_output
 # ─────────────────────────────────────────────────
 """
 
@@ -62,6 +77,30 @@ from datanexus.tools.t10 import (
     fetch_cve_detail,
     audit_sbom_vulnerabilities,
     fetch_package_licence,
+)
+
+# ── T22 data tools ────────────────────────────────────────────────────────────
+from datanexus.tools.t22 import (
+    fetch_npi_provider,
+    search_npi_by_name,
+    fetch_finra_broker,
+    check_sam_exclusion,
+)
+
+# ── T07 data tools ────────────────────────────────────────────────────────────
+from datanexus.tools.t07 import (
+    fetch_domain_rdap,
+    fetch_ssl_certificate_chain,
+    fetch_dns_records,
+    fetch_domain_history,
+)
+
+# ── T11 data tools ────────────────────────────────────────────────────────────
+from datanexus.tools.t11 import (
+    fetch_patent_by_number,
+    search_patents_by_keyword,
+    fetch_patent_citations,
+    fetch_inventor_portfolio,
 )
 
 # ── Section 13 validation tool ───────────────────────────────────────────────
@@ -120,6 +159,21 @@ app = FastMCP(
         "fetch_cve_detail: full CVE detail by CVE ID. "
         "audit_sbom_vulnerabilities: audit CycloneDX/SPDX SBOM against OSV.dev. "
         "fetch_package_licence: SPDX licence for a package version. "
+        "T22: Professional Licence Verification — NPPES NPI Registry + FINRA BrokerCheck + SAM.gov. "
+        "fetch_npi_provider: look up any US healthcare provider by NPI number. "
+        "search_npi_by_name: search NPI registry by provider name with state/speciality filters. "
+        "fetch_finra_broker: look up FINRA BrokerCheck registration by CRD number. "
+        "check_sam_exclusion: check federal exclusions list by name or EIN. "
+        "T07: Domain & DNS Intelligence — IANA RDAP + crt.sh + Cloudflare DoH. "
+        "fetch_domain_rdap: WHOIS-replacement RDAP lookup for any domain. "
+        "fetch_ssl_certificate_chain: CT log certificates for a domain. "
+        "fetch_dns_records: A/AAAA/MX/TXT/NS/CNAME records via Cloudflare DoH. "
+        "fetch_domain_history: historical certificate issuance from CT logs. "
+        "T11: Global Patent Intelligence — EPO OPS + USPTO PatentsView + WIPO PATENTSCOPE. "
+        "fetch_patent_by_number: full bibliographic data for a patent by number and jurisdiction. "
+        "search_patents_by_keyword: search EP/US/WO patents by keyword and date. "
+        "fetch_patent_citations: forward and backward citations for a patent. "
+        "fetch_inventor_portfolio: patent portfolio for an inventor, optionally by assignee. "
         "All responses include query_hash, schema_version, data_as_of, ingest_healthy."
     ),
 )
@@ -136,6 +190,24 @@ app.tool()(fetch_cve_detail)
 app.tool()(audit_sbom_vulnerabilities)
 app.tool()(fetch_package_licence)
 
+# ── Register T22 data tools ───────────────────────────────────────────────────
+app.tool()(fetch_npi_provider)
+app.tool()(search_npi_by_name)
+app.tool()(fetch_finra_broker)
+app.tool()(check_sam_exclusion)
+
+# ── Register T07 data tools ───────────────────────────────────────────────────
+app.tool()(fetch_domain_rdap)
+app.tool()(fetch_ssl_certificate_chain)
+app.tool()(fetch_dns_records)
+app.tool()(fetch_domain_history)
+
+# ── Register T11 data tools ───────────────────────────────────────────────────
+app.tool()(fetch_patent_by_number)
+app.tool()(search_patents_by_keyword)
+app.tool()(fetch_patent_citations)
+app.tool()(fetch_inventor_portfolio)
+
 # ── Register shared infrastructure tools (once — not per-tool duplicates) ─────
 app.tool()(report_feedback)
 app.tool()(report_mcpize_link)
@@ -150,7 +222,7 @@ async def health(request: Request) -> JSONResponse:
     return JSONResponse({
         "status": "ok",
         "service": "datanexus-mcp",
-        "tools": 11,
+        "tools": 23,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -171,6 +243,6 @@ async def mcp_manifest(request: Request) -> JSONResponse:
 if __name__ == "__main__":
     logger.info(
         "DataNexus MCP starting — transport=streamable-http — "
-        "11 tools registered (T04×3, T10×5, Shared×2, Section13×1)"
+        "23 tools registered (T04×3, T10×5, T22×4, T07×4, T11×4, Shared×2, Section13×1)"
     )
     app.run(transport="streamable-http", host="0.0.0.0", port=8000)
