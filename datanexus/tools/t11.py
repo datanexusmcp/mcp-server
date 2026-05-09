@@ -416,7 +416,7 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
 
         if not result:
             return error_response(
-                ErrorCode.UPSTREAM_ERROR,
+                ErrorCode.UPSTREAM_UNAVAILABLE,
                 "Patent data unavailable from all sources.",
                 params,
                 staleness_notices=staleness,
