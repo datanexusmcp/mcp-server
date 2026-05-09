@@ -57,11 +57,14 @@ Phase 5: report_mcpize_link delegates to payment.tools.report_mcpize_link.
 
 import logging
 import sys
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+from datanexus.db_init import init_db
 
 # ── T04 data tools ────────────────────────────────────────────────────────────
 from datanexus.tools.t04 import (
@@ -158,8 +161,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("datanexus.main")
 
+
+# ── Startup lifespan — DB table init ─────────────────────────────────────────
+@asynccontextmanager
+async def _lifespan(server):
+    """Run DB table initialisation once before the first request is served."""
+    await init_db()
+    yield
+
+
 app = FastMCP(
     "DataNexus MCP",
+    lifespan=_lifespan,
     instructions=(
         "DataNexus MCP provides AI-Ready access to public data sources. "
         "Token-efficient. Verified sources. "
