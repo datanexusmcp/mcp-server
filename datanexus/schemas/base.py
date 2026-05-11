@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from datanexus.security import IntegrityError, verify_integrity
 

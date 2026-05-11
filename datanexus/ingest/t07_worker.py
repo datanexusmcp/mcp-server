@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import httpx
 
 from datanexus.core.cache import set_cached
-from datanexus.core.circuit_breaker import record_failure, record_success
+from datanexus.core.circuit_breaker import record_success_sync
 from datanexus.core.ingest_base import IngestBase
 
 log = logging.getLogger("datanexus.ingest.t07")
@@ -64,7 +64,7 @@ class DomainRDAPWorker(IngestBase):
 
         # Store bootstrap under the same key as the tool uses
         set_cached("T07", "rdap_bootstrap", data, _BOOTSTRAP_TTL)
-        record_success("iana_rdap")
+        record_success_sync("iana_rdap")
 
         tld_count = sum(len(tlds) for tlds, _ in data.get("services", []))
         log.info(json.dumps({

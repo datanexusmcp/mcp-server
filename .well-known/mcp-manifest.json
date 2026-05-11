@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "name": "DataNexus MCP",
-  "description": "AI-Ready access to US/UK nonprofit data and OSS vulnerability intelligence. T04: US nonprofits via IRS EO BMF + IRS TEOS, UK charities via Charity Commission England and Wales. T10: CVEs via Google OSV.dev, dependency graphs via deps.dev, CVE detail via NIST NVD, SBOM auditing, licence lookups. Token-efficient AI-Ready Markdown. No API key required.",
-  "version": "1.0.5",
+  "description": "AI-Ready public data intelligence. 30 tools in 7 focused sub-servers: nonprofit, security, compliance, domain, legal, GovCon, and regulatory. Use search_datanexus_tools to find the right tool. Token-efficient AI-Ready Markdown. No API key required for most tools.",
+  "version": "2.1.0",
   "homepage": "https://datanexusmcp.com",
   "repository": "https://github.com/datanexusmcp/mcp-server",
   "contact": "admin@datanexusmcp.com",
@@ -14,44 +14,50 @@
     }
   ],
   "install": {
-    "pip": "pip install datanexus-mcp",
     "npx": "npx -y @datanexusmcp/mcp-server"
   },
   "tools": [
     {
-      "name": "fetch_nonprofit_by_ein",
-      "description": "US nonprofit lookup by EIN. Sources: IRS EO BMF + IRS TEOS.",
+      "name": "search_datanexus_tools",
+      "description": "Find the right DataNexus tool by describing your task in plain English. Use this first. Token-efficient entry point.",
+      "parameters": {
+        "query": { "type": "string", "description": "Natural language description of your task", "required": true }
+      }
+    },
+    {
+      "name": "nonprofit_fetch_nonprofit_by_ein",
+      "description": "IRS 990 data for any US nonprofit by EIN. Returns revenue, expenses, assets and mission. Sources: IRS EO BMF + IRS TEOS.",
       "parameters": {
         "ein": { "type": "string", "description": "EIN in XX-XXXXXXX or XXXXXXXXX format", "required": true }
       }
     },
     {
-      "name": "search_nonprofits_by_name",
-      "description": "Search US nonprofits by name. Source: IRS EO BMF.",
+      "name": "nonprofit_search_nonprofits_by_name",
+      "description": "Search US nonprofits by name. Returns top matches with EIN, NTEE code and state. Source: IRS EO BMF.",
       "parameters": {
         "name": { "type": "string", "description": "Organisation name to search", "required": true },
         "state": { "type": "string", "description": "Two-letter US state code filter (optional)", "required": false }
       }
     },
     {
-      "name": "fetch_charity_uk",
-      "description": "UK charity registration data from Charity Commission England and Wales (CCEW). UK GDPR purpose-limitation: due-diligence use only.",
+      "name": "nonprofit_fetch_charity_uk",
+      "description": "UK charity registration data from Charity Commission England and Wales. Returns income, activities and trustees.",
       "parameters": {
         "charity_number_or_name": { "type": "string", "description": "UK charity registration number or name", "required": true }
       }
     },
     {
-      "name": "fetch_package_vulnerabilities",
-      "description": "Known CVEs for an open-source package + version. Source: Google OSV.dev.",
+      "name": "security_fetch_package_vulnerabilities",
+      "description": "All known CVEs for any open source package across PyPI, npm, Maven, Go, Cargo. Returns severity, CVSS score and fixed versions. Sources: Google OSV.dev + NIST NVD.",
       "parameters": {
         "package": { "type": "string", "description": "Package name", "required": true },
         "version": { "type": "string", "description": "Package version", "required": true },
-        "ecosystem": { "type": "string", "description": "Ecosystem (PyPI, npm, Go, Maven, etc.)", "required": true }
+        "ecosystem": { "type": "string", "description": "Ecosystem (PyPI, npm, Go, Maven, Cargo, NuGet, RubyGems, Packagist)", "required": true }
       }
     },
     {
-      "name": "fetch_dependency_graph",
-      "description": "Transitive dependency graph for a package version. Source: deps.dev (Google). Hard 8s timeout.",
+      "name": "security_fetch_dependency_graph",
+      "description": "Transitive dependency graph for a package version. Hard 8s timeout. Source: deps.dev (Google).",
       "parameters": {
         "package": { "type": "string", "description": "Package name", "required": true },
         "version": { "type": "string", "description": "Package version", "required": true },
@@ -59,26 +65,178 @@
       }
     },
     {
-      "name": "fetch_cve_detail",
-      "description": "Full CVE detail with CVSS v3 scores and affected CPEs. Source: NIST NVD.",
+      "name": "security_fetch_cve_detail",
+      "description": "Full CVE detail by ID including CVSS v3 scores and affected CPEs. Source: NIST NVD.",
       "parameters": {
         "cve_id": { "type": "string", "description": "CVE identifier (e.g. CVE-2024-47081)", "required": true }
       }
     },
     {
-      "name": "audit_sbom_vulnerabilities",
-      "description": "Audit a CycloneDX or SPDX SBOM against Google OSV.dev.",
+      "name": "security_audit_sbom_vulnerabilities",
+      "description": "Audit a CycloneDX or SPDX SBOM against Google OSV.dev. Returns per-component vulnerability findings.",
       "parameters": {
         "sbom_json": { "type": "string", "description": "CycloneDX or SPDX SBOM as a JSON string", "required": true }
       }
     },
     {
-      "name": "fetch_package_licence",
-      "description": "SPDX licence identifier for an open-source package version. Source: deps.dev (Google).",
+      "name": "security_fetch_package_licence",
+      "description": "SPDX licence identifier for any open source package version. Source: deps.dev (Google).",
       "parameters": {
         "package": { "type": "string", "description": "Package name", "required": true },
         "version": { "type": "string", "description": "Package version", "required": true },
         "ecosystem": { "type": "string", "description": "Ecosystem (PyPI, npm, Go, etc.)", "required": true }
+      }
+    },
+    {
+      "name": "compliance_fetch_npi_provider",
+      "description": "NPI registration for any US healthcare provider. Returns speciality, taxonomy and status. Source: NPPES NPI Registry.",
+      "parameters": {
+        "npi": { "type": "string", "description": "10-digit NPI number", "required": true }
+      }
+    },
+    {
+      "name": "compliance_search_npi_by_name",
+      "description": "Search NPI registry by provider name with optional state and speciality filters. Source: NPPES NPI Registry.",
+      "parameters": {
+        "name": { "type": "string", "description": "Provider name to search", "required": true },
+        "state": { "type": "string", "description": "Two-letter US state code (optional)", "required": false },
+        "specialty": { "type": "string", "description": "Taxonomy/specialty filter (optional)", "required": false }
+      }
+    },
+    {
+      "name": "compliance_fetch_finra_broker",
+      "description": "FINRA BrokerCheck registration by CRD number. Returns licences, disclosures and employment history. Source: FINRA BrokerCheck.",
+      "parameters": {
+        "crd_number": { "type": "string", "description": "FINRA CRD number", "required": true }
+      }
+    },
+    {
+      "name": "compliance_check_sam_exclusion",
+      "description": "Check federal exclusions list by name or EIN. Returns debarred and suspended entities. Source: SAM.gov.",
+      "parameters": {
+        "name": { "type": "string", "description": "Entity name or EIN to check", "required": true }
+      }
+    },
+    {
+      "name": "domain_fetch_domain_rdap",
+      "description": "Domain registration via IANA RDAP. Returns registrar, expiry and nameservers. Source: IANA RDAP.",
+      "parameters": {
+        "domain": { "type": "string", "description": "Domain name (e.g. example.com)", "required": true }
+      }
+    },
+    {
+      "name": "domain_fetch_ssl_certificate_chain",
+      "description": "Certificate Transparency log certificates for a domain. Returns issuer, SANs and validity. Source: crt.sh.",
+      "parameters": {
+        "domain": { "type": "string", "description": "Domain name", "required": true }
+      }
+    },
+    {
+      "name": "domain_fetch_dns_records",
+      "description": "A, AAAA, MX, TXT, NS, CNAME records for any domain. Source: Cloudflare DoH.",
+      "parameters": {
+        "domain": { "type": "string", "description": "Domain name", "required": true }
+      }
+    },
+    {
+      "name": "domain_fetch_domain_history",
+      "description": "Historical certificate issuance from CT logs to track domain ownership changes. Source: crt.sh.",
+      "parameters": {
+        "domain": { "type": "string", "description": "Domain name", "required": true }
+      }
+    },
+    {
+      "name": "legal_fetch_patent_by_number",
+      "description": "Patent details from EPO, USPTO or WIPO by number. Returns title, abstract, inventors and citations. Sources: EPO OPS + USPTO.",
+      "parameters": {
+        "patent_number": { "type": "string", "description": "Patent number (e.g. EP1234567, US9876543)", "required": true }
+      }
+    },
+    {
+      "name": "legal_search_patents_by_keyword",
+      "description": "Search EP, US and WO patents by keyword and date range. Sources: EPO OPS + USPTO.",
+      "parameters": {
+        "keyword": { "type": "string", "description": "Search keyword or phrase", "required": true },
+        "date_from": { "type": "string", "description": "Start date YYYY-MM-DD (optional)", "required": false },
+        "date_to": { "type": "string", "description": "End date YYYY-MM-DD (optional)", "required": false }
+      }
+    },
+    {
+      "name": "legal_fetch_patent_citations",
+      "description": "Forward and backward citations for a patent. Returns who cited it and what it cites. Source: EPO OPS.",
+      "parameters": {
+        "patent_number": { "type": "string", "description": "Patent number", "required": true }
+      }
+    },
+    {
+      "name": "legal_fetch_inventor_portfolio",
+      "description": "Patent portfolio for an inventor, optionally filtered by assignee. Source: EPO OPS.",
+      "parameters": {
+        "inventor_name": { "type": "string", "description": "Inventor full name", "required": true },
+        "assignee": { "type": "string", "description": "Assignee/company filter (optional)", "required": false }
+      }
+    },
+    {
+      "name": "govcon_search_contract_awards",
+      "description": "Search government contract awards by keyword and agency. Returns award amounts, vendors and NAICS codes. Sources: USASpending.gov + SAM.gov.",
+      "parameters": {
+        "keyword": { "type": "string", "description": "Search keyword", "required": true },
+        "agency": { "type": "string", "description": "Agency name filter (optional)", "required": false }
+      }
+    },
+    {
+      "name": "govcon_fetch_vendor_contract_history",
+      "description": "Full contract history for a specific vendor. Returns award totals, top agencies and contract types. Source: USASpending.gov.",
+      "parameters": {
+        "vendor_name": { "type": "string", "description": "Vendor/company name", "required": true }
+      }
+    },
+    {
+      "name": "govcon_fetch_open_solicitations",
+      "description": "Open bid opportunities matching a keyword. Returns due dates, set-aside types and agencies. Sources: SAM.gov + EU TED + UK Find-a-Tender.",
+      "parameters": {
+        "keyword": { "type": "string", "description": "Search keyword", "required": true }
+      }
+    },
+    {
+      "name": "regulatory_search_open_rulemakings",
+      "description": "Search open rulemakings and comment periods. Returns docket title, agency and deadline. Source: Regulations.gov.",
+      "parameters": {
+        "keyword": { "type": "string", "description": "Search keyword or topic", "required": true }
+      }
+    },
+    {
+      "name": "regulatory_fetch_docket_details",
+      "description": "Full docket details by ID including documents, comments and agency contact. Source: Regulations.gov.",
+      "parameters": {
+        "docket_id": { "type": "string", "description": "Docket ID (e.g. FTC-2024-0041)", "required": true }
+      }
+    },
+    {
+      "name": "regulatory_fetch_federal_register_notices",
+      "description": "Recent Federal Register notices by agency. Returns type, publication date and abstract. Source: Federal Register API.",
+      "parameters": {
+        "agency": { "type": "string", "description": "Agency name or abbreviation", "required": true }
+      }
+    },
+    {
+      "name": "report_feedback",
+      "description": "Report an incorrect, incomplete or stale DataNexus tool result.",
+      "parameters": {
+        "query_hash": { "type": "string", "description": "16-char hex query hash from the tool response", "required": true },
+        "issue": { "type": "string", "description": "Description of the issue", "required": true }
+      }
+    },
+    {
+      "name": "report_mcpize_link",
+      "description": "Check subscription status and retrieve upgrade URL if required.",
+      "parameters": {}
+    },
+    {
+      "name": "validate_tool_output",
+      "description": "Validate any DataNexus tool response for data quality anomalies. Two-layer validation: deterministic rules plus AI review.",
+      "parameters": {
+        "tool_response": { "type": "string", "description": "The tool response JSON to validate", "required": true }
       }
     }
   ],
@@ -88,9 +246,19 @@
     { "name": "Charity Commission England and Wales (CCEW)", "url": "https://api.charitycommission.gov.uk", "auth": "none" },
     { "name": "Google OSV.dev", "url": "https://api.osv.dev/v1", "auth": "none" },
     { "name": "NIST NVD", "url": "https://services.nvd.nist.gov/rest/json/cves/2.0", "auth": "none" },
-    { "name": "deps.dev (Google)", "url": "https://api.deps.dev", "auth": "none" }
+    { "name": "deps.dev (Google)", "url": "https://api.deps.dev", "auth": "none" },
+    { "name": "NPPES NPI Registry (CMS)", "url": "https://npiregistry.cms.hhs.gov/api/", "auth": "none" },
+    { "name": "FINRA BrokerCheck", "url": "https://api.brokercheck.finra.org", "auth": "none" },
+    { "name": "SAM.gov", "url": "https://api.sam.gov", "auth": "none" },
+    { "name": "IANA RDAP", "url": "https://rdap.org", "auth": "none" },
+    { "name": "crt.sh (Certificate Transparency)", "url": "https://crt.sh", "auth": "none" },
+    { "name": "Cloudflare DoH", "url": "https://cloudflare-dns.com/dns-query", "auth": "none" },
+    { "name": "EPO OPS (Open Patent Services)", "url": "https://ops.epo.org/3.2/rest-services", "auth": "oauth2" },
+    { "name": "USASpending.gov", "url": "https://api.usaspending.gov", "auth": "none" },
+    { "name": "Federal Register API", "url": "https://www.federalregister.gov/api/v1", "auth": "none" },
+    { "name": "Regulations.gov", "url": "https://api.regulations.gov/v4", "auth": "none" }
   ],
-  "tools_count": 11,
+  "tools_count": 30,
   "cache_ttl_seconds": 86400,
   "integrity": "sha256",
   "free_tier": true

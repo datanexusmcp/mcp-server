@@ -26,11 +26,9 @@ Circuit breaker source IDs: "usaspending", "sam_gov", "eu_ted",
   "uk_find_a_tender"
 """
 
-import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 from fastmcp import FastMCP
@@ -41,17 +39,16 @@ from datanexus.core.audit import (
     standard_response_fields,
 )
 from datanexus.core.cache import (
-    compute_payload_hash,
     get_cached,
     set_cached,
 )
 from datanexus.core.circuit_breaker import (
     is_tripped,
-    record_failure,
-    record_success,
+    record_failure_sync,
+    record_success_sync,
 )
-from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
+from datanexus.core.timeout import with_timeout
 
 log = logging.getLogger("datanexus.tools.t18")
 
@@ -176,6 +173,7 @@ def _parse_usaspending_result(result: dict) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T18")
 async def search_contract_awards(
     keyword: str,
@@ -183,16 +181,9 @@ async def search_contract_awards(
     date_from: str = "",
     jurisdiction: str = "US",
 ) -> dict:
-    """
-    Search government contract awards by keyword, agency, and date range.
-    Returns award amounts, incumbent vendors, contract types, and NAICS
-    codes in AI-Ready Markdown.
-    Verified source: USASpending.gov + SAM.gov (US) · EU TED (EU) ·
-    Find-a-Tender (UK). Data freshness: 4-hour cache. Token-efficient.
-    jurisdiction: 'US', 'EU', 'UK'. Default: 'US'.
-    Example: search_contract_awards('cybersecurity', 'Department of Defense',
-    '2024-01-01', 'US')
-    """
+    """Use this to search government contract awards by keyword or agency.
+    Provide a keyword, optional agency name, and optional date range.
+    Returns matching awards with values, recipients, and award dates."""
     kw_clean     = keyword.strip()
     agency_clean = agency.strip()
     date_clean   = date_from.strip()
@@ -202,7 +193,7 @@ async def search_contract_awards(
         "date_from": date_clean, "jurisdiction": juris_clean,
     }
 
-    async with AuditContext("T18", params, "1.0") as ctx:
+    async with AuditContext("T18", params, "1.0") as _:
         _incr_calls("T18")
         phash = make_params_hash(params)
 
@@ -227,10 +218,10 @@ async def search_contract_awards(
                     data = resp.json()
                     awards = [_parse_usaspending_result(r) for r in data.get("results", [])[:10]]
                     source_used = "USASpending.gov"
-                    record_success("usaspending")
+                    record_success_sync("usaspending")
             except Exception as exc:
                 log.warning("USASpending search_contract_awards failed: %s", exc)
-                record_failure("usaspending")
+                record_failure_sync("usaspending")
                 upstream_err = str(exc)
 
         # ── EU TED (EU) ───────────────────────────────────────────────────────
@@ -259,10 +250,10 @@ async def search_contract_awards(
                             "description": notice.get("title", ""),
                         })
                     source_used = "EU TED"
-                    record_success("eu_ted")
+                    record_success_sync("eu_ted")
             except Exception as exc:
                 log.warning("EU TED search_contract_awards failed: %s", exc)
-                record_failure("eu_ted")
+                record_failure_sync("eu_ted")
                 upstream_err = str(exc)
 
         # ── UK Find-a-Tender ──────────────────────────────────────────────────
@@ -290,10 +281,10 @@ async def search_contract_awards(
                             "description": tender.get("title", ""),
                         })
                     source_used = "UK Find-a-Tender"
-                    record_success("uk_find_a_tender")
+                    record_success_sync("uk_find_a_tender")
             except Exception as exc:
                 log.warning("UK FAT search_contract_awards failed: %s", exc)
-                record_failure("uk_find_a_tender")
+                record_failure_sync("uk_find_a_tender")
                 upstream_err = str(exc)
 
         # Graceful empty
@@ -356,25 +347,20 @@ async def search_contract_awards(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T18")
 async def fetch_vendor_contract_history(
     vendor_name: str,
     jurisdiction: str = "US",
 ) -> dict:
-    """
-    Fetch contract award history for a specific vendor.
-    Returns total awards, top agencies, contract types, and recent awards
-    in AI-Ready Markdown. Useful for competitive intelligence and
-    incumbent research.
-    Verified source: USASpending.gov. Data freshness: 4-hour cache.
-    Token-efficient.
-    Example: fetch_vendor_contract_history('Booz Allen Hamilton', 'US')
-    """
+    """Use this to get the complete government contract history for a vendor.
+    Provide the vendor or company name.
+    Returns all contracts awarded with amounts, agencies, and dates."""
     vendor_clean = vendor_name.strip()
     juris_clean  = jurisdiction.strip().upper()
     params = {"vendor_name": vendor_clean, "jurisdiction": juris_clean}
 
-    async with AuditContext("T18", params, "1.0") as ctx:
+    async with AuditContext("T18", params, "1.0") as _:
         _incr_calls("T18")
         phash = make_params_hash(params)
 
@@ -404,10 +390,10 @@ async def fetch_vendor_contract_history(
                             pass
                         awards.append(a)
                     source_used = "USASpending.gov"
-                    record_success("usaspending")
+                    record_success_sync("usaspending")
             except Exception as exc:
                 log.warning("USASpending fetch_vendor_contract_history failed: %s", exc)
-                record_failure("usaspending")
+                record_failure_sync("usaspending")
 
         if not awards:
             md = f"""## Vendor Contract History: {vendor_clean}
@@ -488,26 +474,22 @@ No contract history found for this vendor in {juris_clean}.
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T18")
 async def fetch_open_solicitations(
     keyword: str,
     agency: str = "",
     jurisdiction: str = "US",
 ) -> dict:
-    """
-    Fetch currently open contract solicitations and bid opportunities
-    matching a keyword. Returns solicitation title, agency, deadline,
-    estimated value, and NAICS in AI-Ready Markdown.
-    Verified source: SAM.gov (US) · EU TED (EU) · Find-a-Tender (UK).
-    Token-efficient. Data freshness: 4-hour cache.
-    Example: fetch_open_solicitations('cloud services', 'GSA', 'US')
-    """
+    """Use this to find currently open government procurement opportunities.
+    Provide keywords describing what goods or services you are seeking.
+    Returns active solicitations with deadlines and agency contact details."""
     kw_clean     = keyword.strip()
     agency_clean = agency.strip()
     juris_clean  = jurisdiction.strip().upper()
     params = {"keyword": kw_clean, "agency": agency_clean, "jurisdiction": juris_clean}
 
-    async with AuditContext("T18", params, "1.0") as ctx:
+    async with AuditContext("T18", params, "1.0") as _:
         _incr_calls("T18")
         phash = make_params_hash(params)
 
@@ -548,10 +530,10 @@ async def fetch_open_solicitations(
                                 "posted_date": opp.get("postedDate", ""),
                             })
                         source_used = "SAM.gov"
-                        record_success("sam_gov")
+                        record_success_sync("sam_gov")
                 except Exception as exc:
                     log.warning("SAM.gov fetch_open_solicitations failed: %s", exc)
-                    record_failure("sam_gov")
+                    record_failure_sync("sam_gov")
 
         # ── Fallback: USASpending for US when SAM unavailable ─────────────────
         if juris_clean == "US" and not solicitations and not is_tripped("usaspending"):
@@ -580,10 +562,10 @@ async def fetch_open_solicitations(
                         })
                     sam_note = " (SAM key not configured — showing recent awards)" if not _sam_gov_key() else ""
                     source_used = f"USASpending.gov{sam_note}"
-                    record_success("usaspending")
+                    record_success_sync("usaspending")
             except Exception as exc:
                 log.warning("USASpending fallback fetch_open_solicitations failed: %s", exc)
-                record_failure("usaspending")
+                record_failure_sync("usaspending")
 
         # ── EU TED ────────────────────────────────────────────────────────────
         elif juris_clean == "EU" and not is_tripped("eu_ted"):
@@ -610,10 +592,10 @@ async def fetch_open_solicitations(
                             "posted_date": notice.get("publication-date", ""),
                         })
                     source_used = "EU TED"
-                    record_success("eu_ted")
+                    record_success_sync("eu_ted")
             except Exception as exc:
                 log.warning("EU TED fetch_open_solicitations failed: %s", exc)
-                record_failure("eu_ted")
+                record_failure_sync("eu_ted")
 
         # ── UK Find-a-Tender ──────────────────────────────────────────────────
         elif juris_clean == "UK" and not is_tripped("uk_find_a_tender"):
@@ -639,10 +621,10 @@ async def fetch_open_solicitations(
                             "posted_date": tender.get("tenderPeriod", {}).get("startDate", ""),
                         })
                     source_used = "UK Find-a-Tender"
-                    record_success("uk_find_a_tender")
+                    record_success_sync("uk_find_a_tender")
             except Exception as exc:
                 log.warning("UK FAT fetch_open_solicitations failed: %s", exc)
-                record_failure("uk_find_a_tender")
+                record_failure_sync("uk_find_a_tender")
 
         # Graceful empty
         if not solicitations:

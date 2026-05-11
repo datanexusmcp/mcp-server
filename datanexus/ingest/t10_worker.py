@@ -23,8 +23,7 @@ import logging
 
 import httpx
 
-from datanexus.core.cache import set_cached, compute_payload_hash
-from datanexus.core.circuit_breaker import record_failure, record_success
+from datanexus.core.cache import set_cached
 from datanexus.core.ingest_base import IngestBase
 
 log = logging.getLogger("datanexus.ingest.t10")

@@ -142,7 +142,7 @@ def verify_entitlement(tool_id: str) -> Callable:
     Free-window @verify_entitlement stub.
 
     Decorator order in tool files:
-        @mcp.tool()
+        mcp.tool()
         @verify_entitlement('T04')
         async def fetch_nonprofit_by_ein(ein: str) -> dict:
 

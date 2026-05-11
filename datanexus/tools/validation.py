@@ -84,7 +84,6 @@ async def _validate_inner(
     query_hash: str,
     response_json: str,
 ) -> dict:
-    """Inner implementation — exceptions propagate up to the safe wrapper."""
 
     # ── Parse response_json — malformed JSON is a structured result not a raise
     try:

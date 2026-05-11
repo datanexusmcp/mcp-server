@@ -28,11 +28,9 @@ Rate limit: Regulations.gov 1,000 req/day free tier.
   Ingest worker runs at 21600s (6h) intervals to stay within limit.
 """
 
-import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 from fastmcp import FastMCP
@@ -43,17 +41,16 @@ from datanexus.core.audit import (
     standard_response_fields,
 )
 from datanexus.core.cache import (
-    compute_payload_hash,
     get_cached,
     set_cached,
 )
 from datanexus.core.circuit_breaker import (
     is_tripped,
-    record_failure,
-    record_success,
+    record_failure_sync,
+    record_success_sync,
 )
-from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
+from datanexus.core.timeout import with_timeout
 
 log = logging.getLogger("datanexus.tools.t19")
 
@@ -178,21 +175,16 @@ def _regs_gov_headers() -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T19")
 async def search_open_rulemakings(
     keyword: str,
     agency: str = "",
     status: str = "open",
 ) -> dict:
-    """
-    Search open rulemakings and comment periods on Regulations.gov and
-    Federal Register. Returns docket title, agency, comment deadline,
-    docket ID, and document count in AI-Ready Markdown.
-    Verified source: Regulations.gov + Federal Register API.
-    Token-efficient. Data freshness: 4-hour cache.
-    status: 'open', 'closed', 'all'. Default: 'open'.
-    Example: search_open_rulemakings('artificial intelligence', 'FTC', 'open')
-    """
+    """Use this to find open regulatory rulemakings and active comment periods.
+    Provide keywords and optional agency abbreviation such as EPA or SEC.
+    Returns active rulemakings with comment deadlines and docket IDs."""
     kw_clean     = keyword.strip()
     agency_clean = agency.strip().upper()
     status_clean = status.strip().lower()
@@ -201,7 +193,7 @@ async def search_open_rulemakings(
 
     params = {"keyword": kw_clean, "agency": agency_clean, "status": status_clean}
 
-    async with AuditContext("T19", params, "1.0") as ctx:
+    async with AuditContext("T19", params, "1.0") as _:
         _incr_calls("T19")
         phash = make_params_hash(params)
 
@@ -249,10 +241,10 @@ async def search_open_rulemakings(
                             "source":          "Regulations.gov",
                         })
                     source_used = "Regulations.gov"
-                    record_success("regulations_gov")
+                    record_success_sync("regulations_gov")
             except Exception as exc:
                 log.warning("Regulations.gov search_open_rulemakings failed: %s", exc)
-                record_failure("regulations_gov")
+                record_failure_sync("regulations_gov")
 
         # ── Fallback: Federal Register ────────────────────────────────────────
         if not dockets and not is_tripped("federal_register"):
@@ -298,10 +290,10 @@ async def search_open_rulemakings(
                             "source":           "Federal Register",
                         })
                     source_used = source_used or "Federal Register"
-                    record_success("federal_register")
+                    record_success_sync("federal_register")
             except Exception as exc:
                 log.warning("Federal Register search_open_rulemakings failed: %s", exc)
-                record_failure("federal_register")
+                record_failure_sync("federal_register")
 
         if not dockets:
             md = f"""## Open Rulemakings: {kw_clean}
@@ -363,20 +355,16 @@ No rulemakings found for this keyword and status.
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T19")
 async def fetch_docket_details(docket_id: str) -> dict:
-    """
-    Fetch full details for a specific regulatory docket by ID.
-    Returns title, agency, status, comment period dates, number of
-    comments, and related documents in AI-Ready Markdown.
-    Verified source: Regulations.gov. Data freshness: 4-hour cache.
-    Token-efficient.
-    Example: fetch_docket_details('FDA-2023-N-0001')
-    """
+    """Use this to get full details for a specific regulatory docket.
+    Provide the docket ID such as EPA-HQ-OAR-2021-0317.
+    Returns docket summary, documents list, and total comment count."""
     did_clean = docket_id.strip().upper()
     params = {"docket_id": did_clean}
 
-    async with AuditContext("T19", params, "1.0") as ctx:
+    async with AuditContext("T19", params, "1.0") as _:
         _incr_calls("T19")
         phash = make_params_hash(params)
 
@@ -412,7 +400,7 @@ async def fetch_docket_details(docket_id: str) -> dict:
                         "keywords":         attrs.get("keywords") or [],
                     }
                     source_used = "Regulations.gov"
-                    record_success("regulations_gov")
+                    record_success_sync("regulations_gov")
 
                     # Fetch related documents (up to 5)
                     doc_resp = await client.get(
@@ -450,10 +438,10 @@ Docket not found in Regulations.gov. The docket ID may be incorrect or not yet i
                         **standard_response_fields("T19", phash, "1.0"),
                     }
                 log.warning("Regulations.gov fetch_docket_details failed: %s", exc)
-                record_failure("regulations_gov")
+                record_failure_sync("regulations_gov")
             except Exception as exc:
                 log.warning("Regulations.gov fetch_docket_details failed: %s", exc)
-                record_failure("regulations_gov")
+                record_failure_sync("regulations_gov")
 
         # ── Fallback: Federal Register document search ────────────────────────
         if not detail and not is_tripped("federal_register"):
@@ -501,10 +489,10 @@ Docket not found in Regulations.gov. The docket ID may be incorrect or not yet i
                             for d in results[:5]
                         ]
                         source_used = "Federal Register"
-                        record_success("federal_register")
+                        record_success_sync("federal_register")
             except Exception as exc:
                 log.warning("Federal Register fetch_docket_details failed: %s", exc)
-                record_failure("federal_register")
+                record_failure_sync("federal_register")
 
         if not detail:
             md = f"""## Docket: {did_clean}
@@ -564,26 +552,22 @@ Docket details unavailable from all sources. Try again shortly.
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T19")
 async def fetch_federal_register_notices(
     agency: str,
     keyword: str = "",
     date_from: str = "",
 ) -> dict:
-    """
-    Fetch recent Federal Register notices and rules for an agency.
-    Returns document type, title, publication date, effective date,
-    and CFR citations in AI-Ready Markdown.
-    Verified source: Federal Register API (no key required).
-    Data freshness: 4-hour cache. Token-efficient.
-    Example: fetch_federal_register_notices('SEC', 'crypto', '2024-01-01')
-    """
+    """Use this to fetch recent Federal Register notices for a US agency.
+    Provide the agency name or abbreviation.
+    Returns recent notices with publication dates and document types."""
     agency_clean  = agency.strip()
     keyword_clean = keyword.strip()
     date_clean    = date_from.strip()
     params = {"agency": agency_clean, "keyword": keyword_clean, "date_from": date_clean}
 
-    async with AuditContext("T19", params, "1.0") as ctx:
+    async with AuditContext("T19", params, "1.0") as _:
         _incr_calls("T19")
         phash = make_params_hash(params)
 
@@ -646,10 +630,10 @@ async def fetch_federal_register_notices(
                             "cfr":           cfr_str,
                         })
                     source_used = "Federal Register"
-                    record_success("federal_register")
+                    record_success_sync("federal_register")
             except Exception as exc:
                 log.warning("Federal Register fetch_federal_register_notices failed: %s", exc)
-                record_failure("federal_register")
+                record_failure_sync("federal_register")
 
         if not notices:
             md = f"""## Federal Register: {agency_clean}

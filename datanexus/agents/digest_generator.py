@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import date, datetime, timezone
+from datetime import date
 
 import redis as redis_lib
 

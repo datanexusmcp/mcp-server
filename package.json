@@ -1,7 +1,7 @@
 {
   "name": "@datanexusmcp/mcp-server",
-  "version": "2.0.2",
-  "description": "DataNexus MCP — AI-Ready access to public data via 29 tools: US/UK nonprofits, OSS vulnerability intelligence, professional licence verification (NPI/FINRA/SAM.gov), domain & DNS intelligence, global patent data (EPO/USPTO), government contracting (USASpending/SAM.gov/EU TED), and regulatory dockets (Regulations.gov/Federal Register). No API key required for most tools.",
+  "version": "2.1.0",
+  "description": "DataNexus MCP — AI-Ready public data intelligence. 30 tools in 7 focused sub-servers: nonprofit, security, compliance, domain, legal, GovCon, and regulatory. Use search_datanexus_tools to find the right tool. No API key required for most tools.",
   "keywords": [
     "mcp",
     "model-context-protocol",

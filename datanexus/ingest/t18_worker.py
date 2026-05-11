@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import httpx
 
 from datanexus.core.cache import set_cached
-from datanexus.core.circuit_breaker import record_failure, record_success
+from datanexus.core.circuit_breaker import record_failure_sync, record_success_sync
 from datanexus.core.ingest_base import IngestBase
 
 log = logging.getLogger("datanexus.ingest.t18")
@@ -97,7 +97,7 @@ class USASpendingWorker(IngestBase):
                     if cleaned is not None:
                         set_cached("T18", phash, cleaned, T18_TTL)
                         seeded += 1
-                        record_success("usaspending")
+                        record_success_sync("usaspending")
 
                     log.info(json.dumps({
                         "ts":      _iso_now(),
@@ -114,7 +114,7 @@ class USASpendingWorker(IngestBase):
                         "keyword": keyword,
                         "error":   str(exc),
                     }))
-                    record_failure("usaspending")
+                    record_failure_sync("usaspending")
 
         log.info(json.dumps({
             "ts":    _iso_now(),

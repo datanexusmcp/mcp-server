@@ -4,7 +4,7 @@ datanexus/core/ingest_base.py — Base class for all ingest workers.
 Spec: DataNexus_MCP_Spec_v7_3.docx  Phase 1 / ingest_base.py
 
 Rules (CLAUDE.md):
-- No module-level dicts. No lru_cache. State must be in Redis.
+- No module-level dicts. No in-process cache decorators. State must be in Redis.
 - run_forever NEVER crashes the process — catches ALL exceptions.
 - Every run logs structured JSON to stdout/stderr.
 
@@ -25,8 +25,12 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from datanexus.core.cache import compute_payload_hash, set_cached
-from datanexus.core.circuit_breaker import record_failure, record_success
+from datanexus.core.cache import compute_payload_hash, get_cached, set_cached
+from datanexus.core.circuit_breaker import (
+    is_circuit_open,
+    record_failure_sync,
+    record_success_sync,
+)
 from datanexus.core.validator import validate_payload
 
 log = logging.getLogger("datanexus.core.ingest_base")
@@ -93,6 +97,28 @@ class IngestBase:
         while True:
             await asyncio.sleep(self.schedule_seconds)
             try:
+                # Check async circuit breaker — serve stale cache if open
+                try:
+                    import redis.asyncio as _aioredis
+                    import os as _os
+                    _redis_url = _os.environ.get("DATANEXUS_REDIS_URL", "redis://localhost:6379")
+                    _r = _aioredis.from_url(_redis_url, decode_responses=True)
+                    if await is_circuit_open(_r, self.tool_id, self.source_id):
+                        stale = get_cached(self.tool_id, f"ingest:{self.source_id}")
+                        log.info(json.dumps({
+                            "ts":             _iso_now(),
+                            "event":          "circuit_open_stale_served",
+                            "tool":           self.tool_id,
+                            "source":         self.source_id,
+                            "ingest_healthy": False,
+                            "has_stale":      stale is not None,
+                        }))
+                        await _r.aclose()
+                        continue
+                    await _r.aclose()
+                except Exception as _cb_exc:
+                    log.warning("ingest_base.circuit_check error: %s", _cb_exc)
+
                 raw: bytes = await self.fetch()
                 payload_hash = compute_payload_hash(raw)
 
@@ -104,7 +130,7 @@ class IngestBase:
                     _cleaned, _issues = validate_payload(self.tool_id, _raw_data)
                     if _cleaned is None:
                         # General-1 fired — upstream returned empty payload
-                        record_failure(self.source_id)
+                        record_failure_sync(self.source_id)
                         log.info(json.dumps({
                             "ts":         _iso_now(),
                             "event":      "validation_upstream_empty",
@@ -135,7 +161,7 @@ class IngestBase:
                 )
 
                 tripped = False
-                record_success(self.source_id)
+                record_success_sync(self.source_id)
 
                 log.info(json.dumps({
                     "ts":              _iso_now(),
@@ -148,7 +174,7 @@ class IngestBase:
                 }))
 
             except Exception as exc:
-                just_tripped = record_failure(self.source_id)
+                just_tripped = record_failure_sync(self.source_id)
                 log.error(json.dumps({
                     "ts":              _iso_now(),
                     "tool":            self.tool_id,

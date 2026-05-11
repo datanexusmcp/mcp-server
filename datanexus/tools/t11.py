@@ -27,7 +27,6 @@ Circuit breaker source IDs: "epo_ops", "patentsview", "wipo_patentscope"
 import json
 import logging
 import os
-import re
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -41,18 +40,18 @@ from datanexus.core.audit import (
     standard_response_fields,
 )
 from datanexus.core.cache import (
-    compute_payload_hash,
     get_cached,
     set_cached,
 )
 from datanexus.core.circuit_breaker import (
     get_staleness_notice,
     is_tripped,
-    record_failure,
-    record_success,
+    record_failure_sync,
+    record_success_sync,
 )
 from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
+from datanexus.core.timeout import with_timeout
 
 log = logging.getLogger("datanexus.tools.t11")
 
@@ -187,7 +186,7 @@ def _track_epo_bytes(byte_count: int) -> None:
     Redis key: datanexus:epo:bytes_used:{month_iso}  (e.g. 2026-05)
     """
     from datanexus.core.cache import _get_redis  # type: ignore[attr-defined]
-    from datanexus.core.circuit_breaker import record_failure
+    from datanexus.core.circuit_breaker import record_failure_sync
     r = _get_redis()
     if r is None:
         return
@@ -197,7 +196,7 @@ def _track_epo_bytes(byte_count: int) -> None:
         total = r.incrby(key, byte_count)
         r.expire(key, 40 * 86400)  # 40-day TTL so key survives end of month
         if total > _EPO_BYTES_LIMIT:
-            record_failure("epo_ops")
+            record_failure_sync("epo_ops")
             log.warning(json.dumps({
                 "event":      "epo_free_tier_exceeded",
                 "bytes_used": total,
@@ -305,21 +304,17 @@ def _source_limitation(reason: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T11")
 async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -> dict:
-    """
-    Fetch full bibliographic data for a patent by number and jurisdiction.
-    Returns title, applicants, inventors, IPC classification, publication date,
-    and abstract in AI-Ready Markdown.
-    Verified sources: EPO OPS (EP/WO), USPTO PatentsView (US). Token-efficient.
-    Example: fetch_patent_by_number('EP1000000', 'EP')
-    Returns: bibliographic record only — no legal interpretation.
-    """
+    """Use this to look up a specific patent by its number.
+    Provide the patent number and jurisdiction: US, EP, or WO.
+    Returns filing details, claims summary, inventor, and current assignee."""
     patent_clean = patent_number.strip().upper()
     juris_clean  = jurisdiction.strip().upper()
     params = {"patent_number": patent_clean, "jurisdiction": juris_clean}
 
-    async with AuditContext("T11", params, "1.0") as ctx:
+    async with AuditContext("T11", params, "1.0") as _:
         _incr_calls("T11")
         phash = make_params_hash(params)
 
@@ -372,10 +367,10 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
                             result["patent_number"] = patent_clean
                             result["jurisdiction"]  = juris_clean
                             source_used = "EPO OPS"
-                            record_success("epo_ops")
+                            record_success_sync("epo_ops")
                 except Exception as exc:
                     log.warning("EPO fetch_patent_by_number failed: %s", exc)
-                    record_failure("epo_ops")
+                    record_failure_sync("epo_ops")
                     staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
         # ── Fallback: USPTO PatentsView (US jurisdiction or EPO failure) ─────
@@ -408,10 +403,10 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
                         result["patent_number"] = patent_clean
                         result["jurisdiction"]  = "US"
                         source_used = "USPTO PatentsView"
-                        record_success("patentsview")
+                        record_success_sync("patentsview")
             except Exception as exc:
                 log.warning("PatentsView fetch_patent_by_number failed: %s", exc)
-                record_failure("patentsview")
+                record_failure_sync("patentsview")
                 staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         if not result:
@@ -472,20 +467,16 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T11")
 async def search_patents_by_keyword(
     keywords: str,
     jurisdiction: str = "EP",
     date_from: str = "",
 ) -> dict:
-    """
-    Search patents by keyword across EP, US, or WO patent databases.
-    Returns a list of matching patent records (up to 10) with title,
-    applicant, publication date, and IPC codes in AI-Ready Markdown.
-    Verified sources: EPO OPS (EP/WO), USPTO PatentsView (US). Token-efficient.
-    Example: search_patents_by_keyword('CRISPR gene editing', 'EP', '2020-01-01')
-    Parameters: date_from — ISO date string (YYYY-MM-DD), optional filter.
-    """
+    """Use this to search for patents by keyword to find prior art before filing.
+    Provide keywords and optional jurisdiction.
+    Returns matching patents with numbers, titles, and filing dates."""
     kw_clean    = keywords.strip()
     juris_clean = jurisdiction.strip().upper()
     params = {
@@ -494,7 +485,7 @@ async def search_patents_by_keyword(
         "date_from":   date_from.strip(),
     }
 
-    async with AuditContext("T11", params, "1.0") as ctx:
+    async with AuditContext("T11", params, "1.0") as _:
         _incr_calls("T11")
         phash = make_params_hash(params)
 
@@ -542,10 +533,10 @@ async def search_patents_by_keyword(
                             entry["jurisdiction"] = juris_clean
                             results.append(entry)
                         source_used = "EPO OPS"
-                        record_success("epo_ops")
+                        record_success_sync("epo_ops")
                 except Exception as exc:
                     log.warning("EPO search_patents_by_keyword failed: %s", exc)
-                    record_failure("epo_ops")
+                    record_failure_sync("epo_ops")
                     staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
         # ── USPTO PatentsView fallback ────────────────────────────────────────
@@ -579,10 +570,10 @@ async def search_patents_by_keyword(
                         entry["jurisdiction"] = "US"
                         results.append(entry)
                     source_used = "USPTO PatentsView"
-                    record_success("patentsview")
+                    record_success_sync("patentsview")
             except Exception as exc:
                 log.warning("PatentsView search_patents_by_keyword failed: %s", exc)
-                record_failure("patentsview")
+                record_failure_sync("patentsview")
                 staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         if not results:
@@ -642,24 +633,20 @@ async def search_patents_by_keyword(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T11")
 async def fetch_patent_citations(
     patent_number: str,
     jurisdiction: str = "EP",
 ) -> dict:
-    """
-    Fetch forward and backward citations for a patent.
-    Returns lists of citing and cited patents with titles and dates
-    in AI-Ready Markdown. Useful for mapping technology lineage.
-    Verified sources: EPO OPS (EP), USPTO PatentsView (US). Token-efficient.
-    Example: fetch_patent_citations('EP1000000', 'EP')
-    Returns: citation graph data only — no legal interpretation.
-    """
+    """Use this to get citation chains for a specific patent.
+    Provide the patent number and jurisdiction.
+    Returns patents that cite this one and patents this one cites."""
     patent_clean = patent_number.strip().upper()
     juris_clean  = jurisdiction.strip().upper()
     params = {"patent_number": patent_clean, "jurisdiction": juris_clean}
 
-    async with AuditContext("T11", params, "1.0") as ctx:
+    async with AuditContext("T11", params, "1.0") as _:
         _incr_calls("T11")
         phash = make_params_hash(params)
 
@@ -710,10 +697,10 @@ async def fetch_patent_citations(
                             ref_num = ref_num.get("$", "") if isinstance(ref_num, dict) else str(ref_num)
                             cites.append({"patent_number": ref_num})
                         source_used = "EPO OPS"
-                        record_success("epo_ops")
+                        record_success_sync("epo_ops")
                 except Exception as exc:
                     log.warning("EPO fetch_patent_citations failed: %s", exc)
-                    record_failure("epo_ops")
+                    record_failure_sync("epo_ops")
                     staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
         # ── PatentsView citations (US) ────────────────────────────────────────
@@ -752,10 +739,10 @@ async def fetch_patent_citations(
                                 "date":          entry.get("citedby_patent_date", ""),
                             })
                         source_used = "USPTO PatentsView"
-                        record_success("patentsview")
+                        record_success_sync("patentsview")
             except Exception as exc:
                 log.warning("PatentsView fetch_patent_citations failed: %s", exc)
-                record_failure("patentsview")
+                record_failure_sync("patentsview")
                 staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         cites_md = "\n".join(
@@ -803,24 +790,20 @@ async def fetch_patent_citations(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T11")
 async def fetch_inventor_portfolio(
     inventor_name: str,
     assignee: str = "",
 ) -> dict:
-    """
-    Fetch the patent portfolio for an inventor, optionally filtered by assignee.
-    Returns patent list with titles, publication dates, and jurisdictions
-    in AI-Ready Markdown. Verified sources: EPO OPS, USPTO PatentsView.
-    Token-efficient.
-    Example: fetch_inventor_portfolio('Marie Curie', 'Institut Curie')
-    Returns: public patent records only — not a professional reference check.
-    """
+    """Use this to get all patents filed by a specific inventor.
+    Provide the inventor name and optional assignee to narrow results.
+    Returns the full portfolio with filing dates and current status."""
     name_clean     = inventor_name.strip()
     assignee_clean = assignee.strip()
     params = {"inventor_name": name_clean, "assignee": assignee_clean}
 
-    async with AuditContext("T11", params, "1.0") as ctx:
+    async with AuditContext("T11", params, "1.0") as _:
         _incr_calls("T11")
         phash = make_params_hash(params)
 
@@ -865,10 +848,10 @@ async def fetch_inventor_portfolio(
                             entry["jurisdiction"] = "EP"
                             results.append(entry)
                         source_used = "EPO OPS"
-                        record_success("epo_ops")
+                        record_success_sync("epo_ops")
                 except Exception as exc:
                     log.warning("EPO fetch_inventor_portfolio failed: %s", exc)
-                    record_failure("epo_ops")
+                    record_failure_sync("epo_ops")
                     staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
         # ── USPTO PatentsView inventor search ─────────────────────────────────
@@ -907,10 +890,10 @@ async def fetch_inventor_portfolio(
                         entry["jurisdiction"] = "US"
                         results.append(entry)
                     source_used = "USPTO PatentsView"
-                    record_success("patentsview")
+                    record_success_sync("patentsview")
             except Exception as exc:
                 log.warning("PatentsView fetch_inventor_portfolio failed: %s", exc)
-                record_failure("patentsview")
+                record_failure_sync("patentsview")
                 staleness.append(get_staleness_notice("patentsview", "unknown"))
 
         if not results:

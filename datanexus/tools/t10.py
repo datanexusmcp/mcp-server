@@ -42,11 +42,12 @@ from datanexus.core.cache import (
 from datanexus.core.circuit_breaker import (
     get_staleness_notice,
     is_tripped,
-    record_failure,
-    record_success,
+    record_failure_sync,
+    record_success_sync,
 )
 from payment.entitlement import verify_entitlement
 from datanexus.core.schema import ErrorCode, error_response
+from datanexus.core.timeout import with_timeout
 from datanexus.ingest.t10_worker import (
     query_osv_for_version,
     _normalise_osv_ecosystem,
@@ -98,27 +99,16 @@ _DEPS_SYSTEM: dict[str, str] = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T10")
 async def fetch_package_vulnerabilities(
     package: str,
     version: str,
     ecosystem: str,
 ) -> dict:
-    """
-    Fetch all known CVEs and security advisories for an open-source package
-    version across PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems, Packagist.
-
-    Returns severity, CVSS score, fixed versions, and affected ranges in
-    AI-Ready Markdown. Verified sources: Google OSV.dev + NIST NVD.
-    Token-efficient.
-
-    ecosystem values: PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems, Packagist
-    Example: fetch_package_vulnerabilities('requests', '2.28.0', 'PyPI')
-
-    On source unavailable: returns archived scan with staleness notice.
-    Cache TTL: 3600 seconds (CVEs published continuously).
-    Rate limit: 60/minute per IP.
-    """
+    """Use this to check whether a software package has known security vulnerabilities.
+    Provide package name, version, and ecosystem (npm, PyPI, or Maven).
+    Returns CVE IDs, severity scores, and available patch versions."""
     pkg_clean = package.strip()
     ver_clean = version.strip()
     eco_clean = ecosystem.strip()
@@ -169,7 +159,7 @@ async def fetch_package_vulnerabilities(
                     client, pkg_clean, ver_clean, osv_ecosystem,
                 )
         except httpx.TimeoutException:
-            record_failure("osv_dev")
+            record_failure_sync("osv_dev")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_TIMEOUT,
                 message="OSV.dev timed out. Try again shortly.",
@@ -178,7 +168,7 @@ async def fetch_package_vulnerabilities(
                 ingest_healthy=False,
             )
         except httpx.HTTPStatusError:
-            record_failure("osv_dev")
+            record_failure_sync("osv_dev")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
                 message="OSV.dev temporarily unavailable.",
@@ -187,7 +177,7 @@ async def fetch_package_vulnerabilities(
                 ingest_healthy=False,
             )
         except Exception:
-            record_failure("osv_dev")
+            record_failure_sync("osv_dev")
             log.exception("t10.fetch_package_vulnerabilities error pkg=%s", pkg_clean)
             return error_response(
                 error_code=ErrorCode.INTERNAL_ERROR,
@@ -197,7 +187,7 @@ async def fetch_package_vulnerabilities(
                 ingest_healthy=False,
             )
 
-        record_success("osv_dev")
+        record_success_sync("osv_dev")
 
         vulns      = osv_data.get("vulns", [])
         # Phase 0 response-formatter fixes (query-time layer — belt-and-suspenders)
@@ -239,28 +229,16 @@ async def fetch_package_vulnerabilities(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T10")
 async def fetch_dependency_graph(
     package: str,
     version: str,
     ecosystem: str,
 ) -> dict:
-    """
-    Fetch the dependency graph for a package from deps.dev. Returns direct
-    and transitive dependencies in AI-Ready Markdown.
-
-    IMPORTANT: p99 latency may exceed 4 seconds for large dependency trees.
-    Hard limit: if response time exceeds 8000ms a structured timeout error is
-    returned — this tool NEVER hangs silently.
-    error_code: 'upstream_timeout' on hard limit breach.
-    Verified source: deps.dev (Google Open Source Insights). Data freshness: 1-hour cache.
-
-    ecosystem values: PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems
-    Example: fetch_dependency_graph('fastapi', '0.100.0', 'PyPI')
-
-    Cache TTL: 3600 seconds.
-    Rate limit: 60/minute per IP.
-    """
+    """Use this to get the full dependency tree for a software package.
+    Provide package name, version, and ecosystem.
+    Returns all direct and transitive dependencies."""
     pkg_clean = package.strip()
     ver_clean = version.strip()
     eco_clean = ecosystem.strip()
@@ -315,7 +293,7 @@ async def fetch_dependency_graph(
                 )
 
         except asyncio.TimeoutError:
-            record_failure("deps_dev")
+            record_failure_sync("deps_dev")
             log.warning("t10.fetch_dependency_graph timeout pkg=%s ver=%s eco=%s",
                         pkg_clean, ver_clean, eco_clean)
             return error_response(
@@ -329,7 +307,7 @@ async def fetch_dependency_graph(
                 ingest_healthy=False,
             )
         except httpx.TimeoutException:
-            record_failure("deps_dev")
+            record_failure_sync("deps_dev")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_TIMEOUT,
                 message="Dependency graph fetch timed out.",
@@ -346,7 +324,7 @@ async def fetch_dependency_graph(
                     retry_after=0,
                     ingest_healthy=True,
                 )
-            record_failure("deps_dev")
+            record_failure_sync("deps_dev")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
                 message="deps.dev temporarily unavailable.",
@@ -355,7 +333,7 @@ async def fetch_dependency_graph(
                 ingest_healthy=False,
             )
         except Exception:
-            record_failure("deps_dev")
+            record_failure_sync("deps_dev")
             log.exception("t10.fetch_dependency_graph error pkg=%s", pkg_clean)
             return error_response(
                 error_code=ErrorCode.INTERNAL_ERROR,
@@ -365,7 +343,7 @@ async def fetch_dependency_graph(
                 ingest_healthy=False,
             )
 
-        record_success("deps_dev")
+        record_success_sync("deps_dev")
 
         raw_bytes  = json.dumps(dep_data).encode()
         phash_val  = _compute_hash(raw_bytes)
@@ -406,21 +384,12 @@ async def fetch_dependency_graph(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T10")
 async def fetch_cve_detail(cve_id: str) -> dict:
-    """
-    Fetch full CVE detail by CVE ID from NIST NVD.
-
-    Returns description, CVSS base score, severity level, affected products,
-    and patch reference URLs in AI-Ready Markdown.
-    Verified source: NIST NVD (public domain, US government data).
-
-    cve_id format: 'CVE-YYYY-NNNNN' (e.g. 'CVE-2023-32681')
-    Example: fetch_cve_detail('CVE-2023-32681')
-
-    Cache TTL: 3600 seconds.
-    Rate limit: 60/minute per IP.
-    """
+    """Use this to get full detail on a specific CVE by its identifier.
+    Provide the CVE ID such as CVE-2021-44228.
+    Returns severity, CVSS score, affected versions, and fix information."""
     cve_clean = cve_id.strip().upper()
     params    = {"cve_id": cve_clean}
 
@@ -490,7 +459,7 @@ async def fetch_cve_detail(cve_id: str) -> dict:
                 nvd_raw = resp.json()
 
         except httpx.TimeoutException:
-            record_failure("nist_nvd")
+            record_failure_sync("nist_nvd")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_TIMEOUT,
                 message="NIST NVD timed out. Try again shortly.",
@@ -507,7 +476,7 @@ async def fetch_cve_detail(cve_id: str) -> dict:
                     retry_after=30,
                     ingest_healthy=True,
                 )
-            record_failure("nist_nvd")
+            record_failure_sync("nist_nvd")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
                 message="NIST NVD temporarily unavailable.",
@@ -516,7 +485,7 @@ async def fetch_cve_detail(cve_id: str) -> dict:
                 ingest_healthy=False,
             )
         except Exception:
-            record_failure("nist_nvd")
+            record_failure_sync("nist_nvd")
             log.exception("t10.fetch_cve_detail error cve=%s", cve_clean)
             return error_response(
                 error_code=ErrorCode.INTERNAL_ERROR,
@@ -526,7 +495,7 @@ async def fetch_cve_detail(cve_id: str) -> dict:
                 ingest_healthy=False,
             )
 
-        record_success("nist_nvd")
+        record_success_sync("nist_nvd")
 
         cve_data   = _parse_nvd_cve(nvd_raw, cve_clean)
         raw_bytes  = json.dumps(cve_data).encode()
@@ -564,24 +533,12 @@ async def fetch_cve_detail(cve_id: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T10")
 async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
-    """
-    Audit a Software Bill of Materials in CycloneDX or SPDX JSON format.
-    Call this when a user supplies an SBOM file and wants to know which
-    components have known security vulnerabilities.
-
-    Returns all packages with known vulnerabilities, severity summary, and
-    fix version pointers in AI-Ready Markdown.
-    Verified source: OSV.dev batch query API (Google).
-
-    Input: sbom_json — stringified CycloneDX 1.4+ or SPDX 2.2+ JSON.
-    Returns per-component vulnerability count, highest severity, and advisory
-    reference links. No executable content returned.
-
-    Cache TTL: 3600 seconds. Token-efficient.
-    Rate limit: 60/minute per IP.
-    """
+    """Use this to audit a software bill of materials for known vulnerabilities.
+    Provide a CycloneDX or SPDX SBOM as a JSON string.
+    Returns all CVEs found across every listed component."""
     import hashlib
     params = {"sbom_hash": hashlib.sha256(sbom_json.encode()).hexdigest()[:32]}
 
@@ -641,7 +598,7 @@ async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
             ) as client:
                 batch_results = await _batch_osv_query(client, components)
         except httpx.TimeoutException:
-            record_failure("osv_dev")
+            record_failure_sync("osv_dev")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_TIMEOUT,
                 message="OSV.dev batch query timed out.",
@@ -650,7 +607,7 @@ async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
                 ingest_healthy=False,
             )
         except Exception:
-            record_failure("osv_dev")
+            record_failure_sync("osv_dev")
             log.exception("t10.audit_sbom_vulnerabilities error")
             return error_response(
                 error_code=ErrorCode.INTERNAL_ERROR,
@@ -660,7 +617,7 @@ async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
                 ingest_healthy=False,
             )
 
-        record_success("osv_dev")
+        record_success_sync("osv_dev")
 
         audit_data = _build_audit_data(components, batch_results)
         raw_bytes  = json.dumps(audit_data).encode()
@@ -697,28 +654,16 @@ async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T10")
 async def fetch_package_licence(
     package: str,
     version: str,
     ecosystem: str,
 ) -> dict:
-    """
-    Fetch the declared software licence for any open source package version.
-    Returns the SPDX licence identifier (e.g. MIT, Apache-2.0, GPL-3.0) and
-    compatibility notes in AI-Ready Markdown.
-
-    Verified source: deps.dev (Google Open Source Insights).
-    Data freshness: 1-hour cache.
-
-    Use this before including a dependency in a commercial project to verify
-    licence compatibility.
-
-    ecosystem values: PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems
-    Example: fetch_package_licence('fastapi', '0.100.0', 'PyPI')
-
-    Token-efficient. Rate limit: 60/minute per IP.
-    """
+    """Use this to check the licence for an open source package version.
+    Provide package name, version, and ecosystem.
+    Returns the declared licence identifier such as MIT or Apache-2.0."""
     pkg_clean = package.strip()
     ver_clean = version.strip()
     eco_clean = ecosystem.strip()
@@ -759,7 +704,7 @@ async def fetch_package_licence(
             ) as client:
                 lic_data = await _fetch_licence_live(client, deps_system, pkg_clean, ver_clean)
         except httpx.TimeoutException:
-            record_failure("deps_dev")
+            record_failure_sync("deps_dev")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_TIMEOUT,
                 message="deps.dev timed out. Try again shortly.",
@@ -776,7 +721,7 @@ async def fetch_package_licence(
                     retry_after=0,
                     ingest_healthy=True,
                 )
-            record_failure("deps_dev")
+            record_failure_sync("deps_dev")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
                 message="deps.dev temporarily unavailable.",
@@ -785,7 +730,7 @@ async def fetch_package_licence(
                 ingest_healthy=False,
             )
         except Exception:
-            record_failure("deps_dev")
+            record_failure_sync("deps_dev")
             log.exception("t10.fetch_package_licence error pkg=%s", pkg_clean)
             return error_response(
                 error_code=ErrorCode.INTERNAL_ERROR,
@@ -795,7 +740,7 @@ async def fetch_package_licence(
                 ingest_healthy=False,
             )
 
-        record_success("deps_dev")
+        record_success_sync("deps_dev")
 
         raw_bytes  = json.dumps(lic_data).encode()
         phash_val  = _compute_hash(raw_bytes)
@@ -871,7 +816,6 @@ async def _fetch_dep_graph_live(
     package: str,
     version: str,
 ) -> dict:
-    """Fetch dependency graph from deps.dev. Called under asyncio.wait_for."""
     pkg_enc = quote(package, safe="")
     ver_enc = quote(version, safe="")
     url = (
@@ -908,7 +852,6 @@ async def _fetch_licence_live(
     package: str,
     version: str,
 ) -> dict:
-    """Fetch package version info (including licences) from deps.dev."""
     pkg_enc = quote(package, safe="")
     ver_enc = quote(version, safe="")
     url = (
@@ -934,7 +877,6 @@ async def _batch_osv_query(
     client: httpx.AsyncClient,
     components: list[dict],
 ) -> list[dict]:
-    """Batch query OSV.dev for up to 1000 components."""
     queries = []
     for comp in components[:1000]:
         q: dict = {
@@ -1127,10 +1069,14 @@ def _fmt_fix_severity_levels(vulns: list) -> list:
     import math
 
     def _score_to_level(score: float) -> str:
-        if score == 0.0:  return "NONE"
-        if score < 4.0:   return "LOW"
-        if score < 7.0:   return "MEDIUM"
-        if score < 9.0:   return "HIGH"
+        if score == 0.0:
+            return "NONE"
+        if score < 4.0:
+            return "LOW"
+        if score < 7.0:
+            return "MEDIUM"
+        if score < 9.0:
+            return "HIGH"
         return "CRITICAL"
 
     def _derive_level(vector: str) -> str:
@@ -1378,7 +1324,7 @@ def _build_sbom_audit_markdown(data: dict) -> str:
 
 def _build_licence_markdown(data: dict) -> str:
     lics    = data.get("licences", [])
-    lic_str = ", ".join(f"`{l}`" for l in lics) if lics else "Not declared"
+    lic_str = ", ".join(f"`{lic}`" for lic in lics) if lics else "Not declared"
     lines = [
         f"## Licence: `{data.get('package','')}@{data.get('version','')}` ({data.get('ecosystem','')})",
         "",

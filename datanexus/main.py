@@ -1,134 +1,67 @@
 """
-DataNexus MCP — Sprint 1 + Section 13 + Sprint 2 (T22, T07, T11) entry point.
+DataNexus MCP — Sprint 3 P01 entry point.
 
-Spec:      DataNexus_MCP_Spec_v7_4.docx (authoritative)
+Spec:      DataNexus_MCP_Spec_v7_5.docx (authoritative)
 Transport: streamable-http (CLAUDE.md rule — SSE deprecated April 2026)
 Server:    datanexusmcp.com  |  Hetzner CAX11  |  178.104.251.70
 
-Registered tools (23 total after T11):
-  T04 (3): fetch_nonprofit_by_ein, search_nonprofits_by_name, fetch_charity_uk
-  T10 (5): fetch_package_vulnerabilities, fetch_dependency_graph,
-           fetch_cve_detail, audit_sbom_vulnerabilities, fetch_package_licence
-  T22 (4): fetch_npi_provider, search_npi_by_name,
-           fetch_finra_broker, check_sam_exclusion
-  T07 (4): fetch_domain_rdap, fetch_ssl_certificate_chain,
-           fetch_dns_records, fetch_domain_history
-  T11 (4): fetch_patent_by_number, search_patents_by_keyword,
-           fetch_patent_citations, fetch_inventor_portfolio
-  Shared (2): report_feedback, report_mcpize_link
-  S13 (1):    validate_tool_output
+Registered tools (29 total):
+  nonprofit  (3): fetch_nonprofit_by_ein, search_nonprofits_by_name, fetch_charity_uk
+  security   (5): fetch_package_vulnerabilities, fetch_dependency_graph,
+                  fetch_cve_detail, audit_sbom_vulnerabilities, fetch_package_licence
+  compliance (4): fetch_npi_provider, search_npi_by_name,
+                  fetch_finra_broker, check_sam_exclusion
+  domain     (4): fetch_domain_rdap, fetch_ssl_certificate_chain,
+                  fetch_dns_records, fetch_domain_history
+  legal      (4): fetch_patent_by_number, search_patents_by_keyword,
+                  fetch_patent_citations, fetch_inventor_portfolio
+  govcon     (3): search_contract_awards, fetch_vendor_contract_history,
+                  fetch_open_solicitations
+  regulatory (3): search_open_rulemakings, fetch_docket_details,
+                  fetch_federal_register_notices
+  Shared     (3): report_feedback, report_mcpize_link, validate_tool_output
 
-Phase 4: report_feedback delegates to feedback.collector.report_feedback.
-Phase 5: report_mcpize_link delegates to payment.tools.report_mcpize_link.
-         @verify_entitlement sourced from payment.entitlement (tool modules).
-         report_feedback and report_mcpize_link are registered ONCE as shared
-         infrastructure — tool_id parameter routes to the correct data source.
-
-# ── SECTION 13 ADDITIONS (v7.4) ─────────────────
-# validate_tool_output: added in Section 13
-#   See: DataNexus_MCP_Spec_v7_4.docx Section 13.6
-#
-# Haiku triggers — exactly 4, no others permitted:
-#   T1: anomaly_reviewer.review_anomaly()
-#   T2: feedback_classifier.classify_feedback()
-#   T3: schema_monitor.assess_schema_change()
-#   T4: digest_generator.generate_weekly_digest()
-#
-# Tool count after Sprint 1 + S13: 11
-# Tool count after Sprint 2 T22:   15
-# Tool count after Sprint 2 T07:   19
-# Tool count after Sprint 2 T11:   23
-#   T04: fetch_nonprofit_by_ein,
-#        search_nonprofits_by_name, fetch_charity_uk
-#   T10: fetch_package_vulnerabilities,
-#        fetch_dependency_graph, fetch_cve_detail,
-#        audit_sbom_vulnerabilities,
-#        fetch_package_licence
-#   T22: fetch_npi_provider, search_npi_by_name,
-#        fetch_finra_broker, check_sam_exclusion
-#   T07: fetch_domain_rdap, fetch_ssl_certificate_chain,
-#        fetch_dns_records, fetch_domain_history
-#   T11: fetch_patent_by_number, search_patents_by_keyword,
-#        fetch_patent_citations, fetch_inventor_portfolio
-#   Shared: report_feedback, report_mcpize_link
-#   S13:    validate_tool_output
-# ─────────────────────────────────────────────────
+Sprint 3 P01: 26 data tools regrouped into 7 FastMCP sub-servers via mount().
+Tool logic unchanged — only mcp-tool registrations moved.
+Sprint 3 P02: search_datanexus_tools meta-tool added (30 total).
 """
 
+import asyncio
+import json as _json
 import logging
+import pathlib as _pathlib
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import List as _List, Optional as _Optional
 
 from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from datanexus.db_init import init_db
+from datanexus.core.prewarm import prewarm_cache
 
-# ── T04 data tools ────────────────────────────────────────────────────────────
-from datanexus.tools.t04 import (
-    fetch_nonprofit_by_ein,
-    fetch_charity_uk,
-    search_nonprofits_by_name,
-)
-
-# ── T10 data tools ────────────────────────────────────────────────────────────
-from datanexus.tools.t10 import (
-    fetch_package_vulnerabilities,
-    fetch_dependency_graph,
-    fetch_cve_detail,
-    audit_sbom_vulnerabilities,
-    fetch_package_licence,
-)
-
-# ── T22 data tools ────────────────────────────────────────────────────────────
-from datanexus.tools.t22 import (
-    fetch_npi_provider,
-    search_npi_by_name,
-    fetch_finra_broker,
-    check_sam_exclusion,
-)
-
-# ── T07 data tools ────────────────────────────────────────────────────────────
-from datanexus.tools.t07 import (
-    fetch_domain_rdap,
-    fetch_ssl_certificate_chain,
-    fetch_dns_records,
-    fetch_domain_history,
-)
-
-# ── T11 data tools ────────────────────────────────────────────────────────────
-from datanexus.tools.t11 import (
-    fetch_patent_by_number,
-    search_patents_by_keyword,
-    fetch_patent_citations,
-    fetch_inventor_portfolio,
-)
-
-# ── T18 data tools ────────────────────────────────────────────────────────────
-from datanexus.tools.t18 import (
-    search_contract_awards,
-    fetch_vendor_contract_history,
-    fetch_open_solicitations,
-)
-
-# ── T19 data tools ────────────────────────────────────────────────────────────
-from datanexus.tools.t19 import (
-    search_open_rulemakings,
-    fetch_docket_details,
-    fetch_federal_register_notices,
-)
+# ── Sub-server imports (P01) ──────────────────────────────────────────────────
+from datanexus.tools.nonprofit  import nonprofit
+from datanexus.tools.security   import security
+from datanexus.tools.compliance import compliance
+from datanexus.tools.domain     import domain
+from datanexus.tools.legal      import legal
+from datanexus.tools.govcon     import govcon
+from datanexus.tools.regulatory import regulatory
 
 # ── Section 13 validation tool ───────────────────────────────────────────────
 from datanexus.tools.validation import validate_tool_output
 
+# ── P02 meta-tool ─────────────────────────────────────────────────────────────
+from datanexus.tools.meta import search_datanexus_tools
+
 # ── Shared infrastructure tools ───────────────────────────────────────────────
-# report_feedback and report_mcpize_link are registered ONCE on the shared server.
-# tool_id parameter ('T04' or 'T10') routes feedback and payment lookups correctly.
+# report_feedback and report_mcpize_link registered ONCE as shared infrastructure.
+# tool_id parameter routes feedback and payment lookups to the correct data source.
 from feedback.collector import report_feedback as _real_report_feedback
 from payment.tools import report_mcpize_link as _real_report_mcpize_link
-from typing import List as _List, Optional as _Optional
 
 
 async def report_feedback(
@@ -154,6 +87,7 @@ async def report_mcpize_link(tool_id: str) -> dict:
     """
     return _real_report_mcpize_link(tool_id)
 
+
 logging.basicConfig(
     level=logging.INFO,
     stream=sys.stderr,
@@ -165,12 +99,15 @@ logger = logging.getLogger("datanexus.main")
 # ── Startup lifespan — DB table init ─────────────────────────────────────────
 @asynccontextmanager
 async def _lifespan(server):
-    """Run DB table initialisation once before the first request is served."""
+    """Run DB init and cache pre-warm before the first request is served."""
     await init_db()
+    # Pre-warm fires in the background — errors are silently swallowed inside
+    # prewarm_cache so startup is never blocked by upstream API failures.
+    asyncio.ensure_future(prewarm_cache())
     yield
 
 
-app = FastMCP(
+main = FastMCP(
     "DataNexus MCP",
     lifespan=_lifespan,
     instructions=(
@@ -213,81 +150,53 @@ app = FastMCP(
     ),
 )
 
-# ── Register T04 data tools ───────────────────────────────────────────────────
-app.tool()(fetch_nonprofit_by_ein)
-app.tool()(search_nonprofits_by_name)
-app.tool()(fetch_charity_uk)
-
-# ── Register T10 data tools ───────────────────────────────────────────────────
-app.tool()(fetch_package_vulnerabilities)
-app.tool()(fetch_dependency_graph)
-app.tool()(fetch_cve_detail)
-app.tool()(audit_sbom_vulnerabilities)
-app.tool()(fetch_package_licence)
-
-# ── Register T22 data tools ───────────────────────────────────────────────────
-app.tool()(fetch_npi_provider)
-app.tool()(search_npi_by_name)
-app.tool()(fetch_finra_broker)
-app.tool()(check_sam_exclusion)
-
-# ── Register T07 data tools ───────────────────────────────────────────────────
-app.tool()(fetch_domain_rdap)
-app.tool()(fetch_ssl_certificate_chain)
-app.tool()(fetch_dns_records)
-app.tool()(fetch_domain_history)
-
-# ── Register T11 data tools ───────────────────────────────────────────────────
-app.tool()(fetch_patent_by_number)
-app.tool()(search_patents_by_keyword)
-app.tool()(fetch_patent_citations)
-app.tool()(fetch_inventor_portfolio)
-
-# ── Register T18 data tools ───────────────────────────────────────────────────
-app.tool()(search_contract_awards)
-app.tool()(fetch_vendor_contract_history)
-app.tool()(fetch_open_solicitations)
-
-# ── Register T19 data tools ───────────────────────────────────────────────────
-app.tool()(search_open_rulemakings)
-app.tool()(fetch_docket_details)
-app.tool()(fetch_federal_register_notices)
+# ── Mount 7 sub-servers (P01) ─────────────────────────────────────────────────
+main.mount(nonprofit,   namespace="nonprofit")
+main.mount(security,    namespace="security")
+main.mount(compliance,  namespace="compliance")
+main.mount(domain,      namespace="domain")
+main.mount(legal,       namespace="legal")
+main.mount(govcon,      namespace="govcon")
+main.mount(regulatory,  namespace="regulatory")
 
 # ── Register shared infrastructure tools (once — not per-tool duplicates) ─────
-app.tool()(report_feedback)
-app.tool()(report_mcpize_link)
+main.tool()(report_feedback)
+main.tool()(report_mcpize_link)
 
 # ── Register Section 13 validation tool ──────────────────────────────────────
-app.tool()(validate_tool_output)
+main.tool()(validate_tool_output)
+
+# ── Register P02 meta-tool (no namespace — top-level) ────────────────────────
+main.tool()(search_datanexus_tools)
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
-@app.custom_route("/health", methods=["GET"])
+@main.custom_route("/health", methods=["GET"])
 async def health(request: Request) -> JSONResponse:
     """Service health check — used by load-balancer and gate verification."""
     return JSONResponse({
         "status": "ok",
         "service": "datanexus-mcp",
-        "tools": 29,
+        "tools": 30,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
 
-# ── MCP manifest (registry discovery) ────────────────────────────────────────
-import json as _json
-import pathlib as _pathlib
 
-@app.custom_route("/.well-known/mcp-manifest.json", methods=["GET"])
+# ── MCP manifest (registry discovery) ────────────────────────────────────────
+@main.custom_route("/.well-known/mcp-manifest.json", methods=["GET"])
 async def mcp_manifest(request: Request) -> JSONResponse:
     """Serve .well-known/mcp-manifest.json for registry discovery."""
-    manifest_path = _pathlib.Path(__file__).parent.parent / ".well-known" / "mcp-manifest.json"
+    manifest_path = _pathlib.Path(__file__).parent.parent / "static" / ".well-known" / "mcp-manifest.json"
     try:
         data = _json.loads(manifest_path.read_text())
     except Exception:
         data = {"name": "DataNexus MCP", "version": "1.0.1"}
     return JSONResponse(data)
 
+
 if __name__ == "__main__":
     logger.info(
         "DataNexus MCP starting — transport=streamable-http — "
-        "29 tools registered (T04×3, T10×5, T22×4, T07×4, T11×4, T18×3, T19×3, Shared×2, Section13×1)"
+        "30 tools registered (nonprofit×3, security×5, compliance×4, domain×4, "
+        "legal×4, govcon×3, regulatory×3, Shared×3, meta×1)"
     )
-    app.run(transport="streamable-http", host="0.0.0.0", port=8000)
+    main.run(transport="streamable-http", host="0.0.0.0", port=8000)  # nosec B104

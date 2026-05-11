@@ -49,11 +49,12 @@ from datanexus.core.cache import (
 from datanexus.core.circuit_breaker import (
     get_staleness_notice,
     is_tripped,
-    record_failure,
-    record_success,
+    record_failure_sync,
+    record_success_sync,
 )
 from payment.entitlement import verify_entitlement
 from datanexus.core.schema import ErrorCode, error_response
+from datanexus.core.timeout import with_timeout
 
 log = logging.getLogger("datanexus.tools.t04")
 
@@ -107,25 +108,12 @@ UK_CHARITY_TTL = 86400   # 24h — UK GDPR maximum
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T04")
 async def fetch_nonprofit_by_ein(ein: str) -> dict:
-    """
-    Fetch IRS 990 data for any US nonprofit by EIN (Employer Identification Number).
-
-    Returns name, address, NTEE code, ruling date, revenue, expenses, and assets
-    in AI-Ready Markdown. Verified source: IRS EO BMF + IRS TEOS (public domain).
-    Token-efficient. No auth required.
-
-    EIN format: '13-1837418' or '131837418' (both accepted).
-    Example: fetch_nonprofit_by_ein('13-1837418')
-
-    On cache miss: serves from IRS bulk data (live CSV lookup).
-    On source unavailable: returns archived data with staleness_notice
-    showing last update time.
-
-    Data freshness: 7-day cache (IRS BMF updates monthly).
-    Rate limit: 60/minute per IP.
-    """
+    """Use this to research a US charity or nonprofit by EIN number.
+    Provide the EIN with or without dash. Returns financial history,
+    revenue, expenses, assets, and IRS registration status."""
     # Normalise EIN — strip dashes, leading zeros
     ein_clean = ein.replace("-", "").strip()
     params = {"ein": ein_clean}
@@ -209,7 +197,7 @@ async def fetch_nonprofit_by_ein(ein: str) -> dict:
         set_cached("T04", phash, payload, IRS_BMF_TTL)
         set_cached("T04", phash + "_archive", payload, IRS_BMF_TTL * 4)
         ctx.set_cache_hit(False)
-        record_success("irs_bmf")
+        record_success_sync("irs_bmf")
 
         log.info("t04.fetch_nonprofit_by_ein ok ein=%s name=%s",
                  ein_clean, result.get("name", ""))
@@ -225,24 +213,12 @@ async def fetch_nonprofit_by_ein(ein: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T04")
 async def search_nonprofits_by_name(name: str, state: str = "") -> dict:
-    """
-    Search US nonprofits by organisation name with optional state filter.
-
-    Returns up to 25 results with EIN, revenue, NTEE code, and address in
-    AI-Ready Markdown. Verified source: IRS TEOS search (public domain).
-    Token-efficient.
-
-    Example: search_nonprofits_by_name('Red Cross', 'CA')
-    Example: search_nonprofits_by_name('United Way')
-
-    name:  Organisation name to search (partial match supported).
-    state: Two-letter state code to filter results (optional).
-
-    Data freshness: 7-day cache (IRS data updates monthly).
-    Rate limit: 60/minute per IP.
-    """
+    """Use this to find US nonprofits by organisation name.
+    Provide a full or partial name and optional state code.
+    Returns up to 25 matches with EINs for precise lookup."""
     name_clean  = name.strip().upper()
     state_clean = state.strip().upper()
     params      = {"name": name_clean, "state": state_clean}
@@ -267,8 +243,6 @@ async def search_nonprofits_by_name(name: str, state: str = "") -> dict:
         # ── Live search — stream CSVs ─────────────────────────────────────────
         results = await _search_by_name_live(name_clean, state_clean, limit=25)
         data_as_of = datetime.now(timezone.utc).isoformat()
-        ingest_healthy = len(results) >= 0   # empty list is a valid result
-
         if not results and is_tripped("irs_bmf"):
             return error_response(
                 error_code=ErrorCode.CIRCUIT_OPEN,
@@ -298,7 +272,7 @@ async def search_nonprofits_by_name(name: str, state: str = "") -> dict:
 
         set_cached("T04", phash, payload, IRS_BMF_TTL)
         ctx.set_cache_hit(False)
-        record_success("irs_bmf")
+        record_success_sync("irs_bmf")
 
         log.info("t04.search_nonprofits_by_name results=%d name=%s state=%s",
                  len(results), name_clean, state_clean)
@@ -314,32 +288,12 @@ async def search_nonprofits_by_name(name: str, state: str = "") -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T04")
 async def fetch_charity_uk(charity_number_or_name: str) -> dict:
-    """
-    Fetch UK registered charity details from the Charity Commission.
-
-    Returns registration status, income, expenditure, and activities in
-    AI-Ready Markdown. Verified source: UK Charity Commission API.
-    Token-efficient.
-
-    For due diligence and research purposes.
-    Not for profiling individuals associated with charities.
-
-    DataNexus acts as data controller for UK charity data processed via this
-    tool. Data sourced from Charity Commission for England and Wales under
-    Open Government Licence v3.0.
-
-    Individuals whose data appears in charity records may contact
-    dataprotection@datanexusmcp.com to exercise rights under UK GDPR Article 17.
-
-    charity_number_or_name: UK charity registration number (e.g. '219099')
-                            or partial name for search.
-    Example: fetch_charity_uk('219099')
-
-    Cache TTL: 24 hours (UK GDPR maximum — not negotiable).
-    Rate limit: 60/minute per IP.
-    """
+    """Use this to look up a UK registered charity by number or name.
+    Provide the charity number or organisation name.
+    Returns income, activities, and registration details."""
     query = charity_number_or_name.strip()
     params = {"charity_number_or_name": query}
 
@@ -393,7 +347,7 @@ async def fetch_charity_uk(charity_number_or_name: str) -> dict:
                 result = await _search_uk_by_name(query)
 
         except httpx.TimeoutException:
-            record_failure("uk_charity")
+            record_failure_sync("uk_charity")
             return error_response(
                 error_code=ErrorCode.UPSTREAM_TIMEOUT,
                 message="UK Charity Commission bulk data timed out. Try again shortly.",
@@ -402,7 +356,7 @@ async def fetch_charity_uk(charity_number_or_name: str) -> dict:
                 ingest_healthy=False,
             )
         except Exception:
-            record_failure("uk_charity")
+            record_failure_sync("uk_charity")
             log.exception("t04.fetch_charity_uk unexpected error query=%s", query)
             return error_response(
                 error_code=ErrorCode.INTERNAL_ERROR,
@@ -447,7 +401,7 @@ async def fetch_charity_uk(charity_number_or_name: str) -> dict:
             set_cached("T04", f"uk:{regno}", payload, UK_CHARITY_TTL)
             set_cached("T04", f"uk:{regno}_archive", payload, UK_CHARITY_TTL * 4)
         ctx.set_cache_hit(False)
-        record_success("uk_charity")
+        record_success_sync("uk_charity")
 
         log.info("t04.fetch_charity_uk ok regno=%s name=%s",
                  regno, result.get("name", ""))
@@ -496,10 +450,6 @@ mcp.tool()(report_mcpize_link)
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _lookup_ein(ein_clean: str) -> Optional[dict]:
-    """
-    Look up an EIN. Checks Redis BMF index first, then falls back to live CSV stream.
-    Returns None if not found in any source.
-    """
     # 1. Redis cache (populated by IRSBMFWorker)
     from datanexus.core.cache import _get_redis  # type: ignore[attr-defined]
     r = _get_redis()
@@ -516,7 +466,6 @@ async def _lookup_ein(ein_clean: str) -> Optional[dict]:
 
 
 async def _lookup_ein_csv_live(ein_clean: str) -> Optional[dict]:
-    """Stream IRS EO BMF CSVs to find a specific EIN. Tries all 4 regions."""
     async with httpx.AsyncClient(
         timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True
     ) as client:
@@ -530,7 +479,7 @@ async def _lookup_ein_csv_live(ein_clean: str) -> Optional[dict]:
                 reader = csv.DictReader(io.StringIO(text))
                 for row in reader:
                     if row.get("EIN", "").strip() == ein_clean:
-                        record_success("irs_bmf")
+                        record_success_sync("irs_bmf")
                         return {
                             "ein":        row.get("EIN", "").strip(),
                             "name":       row.get("NAME", "").strip(),
@@ -550,14 +499,13 @@ async def _lookup_ein_csv_live(ein_clean: str) -> Optional[dict]:
                         }
             except Exception as exc:
                 log.warning("_lookup_ein_csv_live url=%s error=%s", url, exc)
-                record_failure("irs_bmf")
+                record_failure_sync("irs_bmf")
                 continue
 
     return None
 
 
 async def _search_by_name_live(name: str, state: str, limit: int = 25) -> list:
-    """Stream IRS EO BMF CSVs and return organisations matching name/state."""
     results = []
     name_upper = name.upper()
 
@@ -600,13 +548,6 @@ async def _search_by_name_live(name: str, state: str, limit: int = 25) -> list:
 
 
 async def _fetch_uk_by_number(regno: str) -> Optional[dict]:
-    """
-    Look up a UK charity by registration number.
-
-    Path 1 (fast): Redis index populated by UKCharityWorker.
-    Path 2 (slow fallback): Download full bulk extract from Azure blob storage.
-    No authentication required for either path.
-    """
     from datanexus.core.cache import _get_redis  # type: ignore[attr-defined]
     from datanexus.ingest.t04_worker import fetch_uk_charity_bulk_single
 
@@ -625,14 +566,6 @@ async def _fetch_uk_by_number(regno: str) -> Optional[dict]:
 
 
 async def _search_uk_by_name(name: str) -> Optional[dict]:
-    """
-    Search UK charities by name substring.
-
-    Path 1 (fast): Redis name-prefix index populated by UKCharityWorker.
-    Path 2 (slow fallback): Download full bulk extract and search.
-    No authentication required for either path.
-    Returns the first matching result (GDPR-safe fields only).
-    """
     from datanexus.core.cache import _get_redis  # type: ignore[attr-defined]
     from datanexus.ingest.t04_worker import search_uk_charity_bulk_by_name
 
@@ -685,8 +618,8 @@ def _build_nonprofit_markdown(result: dict, ein: str) -> str:
         lines.append(f"**Tax Period End:** {tax_per[:4]}-{tax_per[4:6]}" if len(tax_per) >= 6 else f"**Tax Period:** {tax_per}")
     lines.append("")
     lines.append("### Financial Summary (most recent IRS filing)")
-    lines.append(f"| Metric | Amount |")
-    lines.append(f"|--------|--------|")
+    lines.append("| Metric | Amount |")
+    lines.append("|--------|--------|")
     lines.append(f"| Revenue | {revenue} |")
     lines.append(f"| Income | {income} |")
     lines.append(f"| Total Assets | {assets} |")
@@ -741,8 +674,8 @@ def _build_uk_charity_markdown(result: dict) -> str:
         lines.append(f"**Website:** {web}")
     lines.append("")
     lines.append("### Financial Summary")
-    lines.append(f"| Metric | Amount |")
-    lines.append(f"|--------|--------|")
+    lines.append("| Metric | Amount |")
+    lines.append("|--------|--------|")
     lines.append(f"| Latest Income | {_fmt_amount(str(income))} |")
     lines.append(f"| Latest Expenditure | {_fmt_amount(str(expend))} |")
     if acts:

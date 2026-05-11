@@ -14,7 +14,6 @@ Hard stops:
   - UK charity data TTL: 86400s MAX — UK GDPR requirement, not negotiable.
 """
 
-import asyncio
 import csv
 import io
 import json
@@ -24,8 +23,6 @@ from typing import Optional
 
 import httpx
 
-from datanexus.core.cache import compute_payload_hash, set_cached
-from datanexus.core.circuit_breaker import record_failure, record_success
 from datanexus.core.ingest_base import IngestBase
 
 log = logging.getLogger("datanexus.ingest.t04")
@@ -88,7 +85,6 @@ class IRSBMFWorker(IngestBase):
 
     async def fetch(self) -> bytes:
         """Download all 4 regional CSVs and index every EIN into Redis."""
-        from datanexus.core.cache import _get_redis  # type: ignore[attr-defined]
 
         total_rows = 0
         raw_sample = b""  # representative bytes for payload hash
@@ -461,7 +457,8 @@ async def fetch_uk_charity_bulk_single(regno: str) -> Optional[dict]:
         "https://ccewuksprdoneregsadata1.blob.core.windows.net"
         "/data/json/publicextract.charity.zip"
     )
-    import io, zipfile as _zipfile
+    import io
+    import zipfile as _zipfile
 
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(180.0, connect=15.0),
@@ -492,7 +489,8 @@ async def search_uk_charity_bulk_by_name(name: str, limit: int = 10) -> list[dic
     Live fallback: search charities by name from the bulk extract.
     Returns up to `limit` GDPR-safe results matching the name substring.
     """
-    import io, zipfile as _zipfile
+    import io
+    import zipfile as _zipfile
     uk_bulk_url = (
         "https://ccewuksprdoneregsadata1.blob.core.windows.net"
         "/data/json/publicextract.charity.zip"

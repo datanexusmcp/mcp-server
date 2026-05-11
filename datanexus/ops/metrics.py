@@ -17,7 +17,7 @@ PostgreSQL table consumed:
 import json
 import logging
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 logger = logging.getLogger("datanexus.ops.metrics")

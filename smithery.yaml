@@ -4,16 +4,18 @@
 name: datanexus-mcp
 displayName: DataNexus MCP
 description: >
-  AI-Ready access to US/UK nonprofit data and OSS vulnerability intelligence via MCP.
-  T04 — Nonprofits: look up any US nonprofit by EIN (IRS EO BMF + IRS TEOS),
-  search by name, or retrieve UK charity registration data (Charity Commission England and Wales).
-  T10 — OSS Vulnerability Intelligence: CVEs per package/version (Google OSV.dev),
-  full dependency graphs (deps.dev), CVE detail with CVSS scores (NIST NVD),
-  CycloneDX/SPDX SBOM auditing, and SPDX licence lookups.
-  All responses are token-efficient AI-Ready Markdown with verified source URLs,
-  fetch timestamps, and SHA-256 integrity hashes. No API key required.
+  AI-Ready public data intelligence via MCP. 30 tools in 7 focused sub-servers:
+  nonprofit (IRS EO BMF + IRS TEOS + UK Charity Commission),
+  security (Google OSV.dev + NIST NVD + deps.dev),
+  compliance (NPPES NPI + FINRA BrokerCheck + SAM.gov),
+  domain (IANA RDAP + crt.sh + Cloudflare DoH),
+  legal/patents (EPO OPS + USPTO + WIPO),
+  GovCon (USASpending.gov + SAM.gov + EU TED),
+  and regulatory (Regulations.gov + Federal Register).
+  Use search_datanexus_tools first to find the right tool.
+  Token-efficient AI-Ready Markdown. No API key required for most tools.
 
-version: 1.0.5
+version: 2.1.0
 license: MIT
 homepage: https://datanexusmcp.com
 repository: https://github.com/datanexusmcp/mcp-server
@@ -42,24 +44,34 @@ tags:
   - NIST-NVD
   - CVSS
   - vulnerability
+  - NPI
+  - FINRA
+  - SAM
+  - RDAP
+  - DNS
+  - SSL
+  - patent
+  - EPO
+  - USPTO
+  - GovCon
+  - USASpending
+  - federal-register
+  - regulations
 
-runtime: python
-pythonVersion: ">=3.11"
+runtime: node
+nodeVersion: ">=18"
 
 startCommand:
   type: http
   url: https://datanexusmcp.com/mcp
 
-# Local fallback (requires Python 3.11+ and pip install datanexus-mcp)
+# Local fallback (bridges HTTP → stdio)
 # startCommand:
 #   type: stdio
-#   command: python3
+#   command: npx
 #   args:
-#     - -m
-#     - datanexus.main
-
-installSteps:
-  - pip install datanexus-mcp
+#     - -y
+#     - "@datanexusmcp/mcp-server"
 
 environmentVariables:
   DATANEXUS_ENV:
@@ -98,48 +110,164 @@ environmentVariables:
     required: false
 
 tools:
-  # ── T04 — US/UK Nonprofits ──────────────────────────────────────────────────
-  - name: fetch_nonprofit_by_ein
+  # ── Shared ──────────────────────────────────────────────────────────────────
+  - name: search_datanexus_tools
     description: >
-      US nonprofit lookup by EIN. Sources: IRS EO BMF + IRS TEOS.
-      Returns org name, address, NTEE code, ruling date, and financial summary.
-      AI-Ready Markdown. No API key required.
+      Find the right DataNexus tool by describing your task in plain English.
+      Use this first. Reduces context load from ~40,000 to ~800 tokens.
 
-  - name: search_nonprofits_by_name
+  # ── T04 — Nonprofit ─────────────────────────────────────────────────────────
+  - name: nonprofit_fetch_nonprofit_by_ein
+    description: >
+      IRS 990 data for any US nonprofit by EIN. Sources: IRS EO BMF + IRS TEOS.
+      Returns org name, address, NTEE code, revenue, assets. AI-Ready Markdown.
+
+  - name: nonprofit_search_nonprofits_by_name
     description: >
       Search US nonprofits by organisation name. Source: IRS EO BMF.
-      Returns top matches with EIN, name, state, NTEE code.
-      No API key required.
+      Returns top 25 matches with EIN, name, state, NTEE code.
 
-  - name: fetch_charity_uk
+  - name: nonprofit_fetch_charity_uk
     description: >
       UK charity data from Charity Commission England and Wales (CCEW).
-      Returns registered name, income, activities, trustees.
+      Returns registered name, income, expenditure, activities, trustees.
       UK GDPR purpose-limitation applies — data for due-diligence only.
-      No API key required.
 
-  # ── T10 — OSS Vulnerability Intelligence ────────────────────────────────────
-  - name: fetch_package_vulnerabilities
+  # ── T10 — Security ──────────────────────────────────────────────────────────
+  - name: security_fetch_package_vulnerabilities
     description: >
-      Known CVEs for an open-source package + version. Source: Google OSV.dev.
-      Returns CVSS v3 scores, aliases, affected ranges. No API key required.
+      All known CVEs for an open-source package + version across PyPI, npm, Maven,
+      Go, Cargo, NuGet, RubyGems, Packagist. Sources: Google OSV.dev + NIST NVD.
+      Returns CVSS v3 scores, aliases, fixed versions.
 
-  - name: fetch_dependency_graph
+  - name: security_fetch_dependency_graph
     description: >
       Transitive dependency graph for a package version. Source: deps.dev (Google).
-      Hard 8-second timeout. No API key required.
+      Hard 8-second timeout. Never hangs silently.
 
-  - name: fetch_cve_detail
+  - name: security_fetch_cve_detail
     description: >
       Full CVE detail by CVE ID. Source: NIST NVD.
-      Returns CVSS v3 base score, vector, CWE, CPEs, references. No API key required.
+      Returns CVSS v3 base score, vector, CWE, CPEs, patch references.
 
-  - name: audit_sbom_vulnerabilities
+  - name: security_audit_sbom_vulnerabilities
     description: >
       Audit a CycloneDX or SPDX SBOM against Google OSV.dev.
-      Returns per-component vulnerability findings with severity. No API key required.
+      Returns per-component vulnerability count and severity. Source: OSV.dev batch API.
 
-  - name: fetch_package_licence
+  - name: security_fetch_package_licence
     description: >
       SPDX licence identifier for an open-source package version.
-      Source: deps.dev (Google). No API key required.
+      Use before adding a commercial dependency. Source: deps.dev (Google).
+
+  # ── T22 — Compliance ────────────────────────────────────────────────────────
+  - name: compliance_fetch_npi_provider
+    description: >
+      NPI registration for any US healthcare provider. Source: NPPES NPI Registry (CMS).
+      Returns name, taxonomy, speciality, address, status.
+
+  - name: compliance_search_npi_by_name
+    description: >
+      Search NPI registry by provider name with optional state and speciality filters.
+      Source: NPPES NPI Registry (CMS).
+
+  - name: compliance_fetch_finra_broker
+    description: >
+      FINRA BrokerCheck registration by CRD number. Source: FINRA BrokerCheck.
+      Returns licences, disclosures, employment history.
+
+  - name: compliance_check_sam_exclusion
+    description: >
+      Check federal exclusions list by name or EIN. Source: SAM.gov.
+      Returns debarred and suspended entities.
+
+  # ── T07 — Domain ────────────────────────────────────────────────────────────
+  - name: domain_fetch_domain_rdap
+    description: >
+      WHOIS-replacement RDAP lookup. Source: IANA RDAP.
+      Returns registrar, expiry, nameservers, status flags.
+
+  - name: domain_fetch_ssl_certificate_chain
+    description: >
+      Certificate Transparency log certificates for a domain. Source: crt.sh.
+      Returns issuer, SANs, validity dates.
+
+  - name: domain_fetch_dns_records
+    description: >
+      A / AAAA / MX / TXT / NS / CNAME records for any domain.
+      Source: Cloudflare DoH.
+
+  - name: domain_fetch_domain_history
+    description: >
+      Historical certificate issuance from CT logs. Source: crt.sh.
+      Track domain ownership changes over time.
+
+  # ── T11 — Legal / Patents ───────────────────────────────────────────────────
+  - name: legal_fetch_patent_by_number
+    description: >
+      Full bibliographic data for a patent. Sources: EPO OPS + USPTO.
+      Returns title, abstract, inventors, assignee, citations.
+
+  - name: legal_search_patents_by_keyword
+    description: >
+      Search EP / US / WO patents by keyword and date range.
+      Sources: EPO OPS + USPTO.
+
+  - name: legal_fetch_patent_citations
+    description: >
+      Forward and backward citations for a patent. Source: EPO OPS.
+      Returns who cited it and what it cites.
+
+  - name: legal_fetch_inventor_portfolio
+    description: >
+      Patent portfolio for an inventor, optionally filtered by assignee.
+      Source: EPO OPS.
+
+  # ── T18 — GovCon ────────────────────────────────────────────────────────────
+  - name: govcon_search_contract_awards
+    description: >
+      Search federal contract awards by keyword and agency.
+      Sources: USASpending.gov + SAM.gov.
+      Returns award amounts, vendors, NAICS codes.
+
+  - name: govcon_fetch_vendor_contract_history
+    description: >
+      Full contract history for a specific vendor. Source: USASpending.gov.
+      Returns award totals, top agencies, contract types.
+
+  - name: govcon_fetch_open_solicitations
+    description: >
+      Open bid opportunities matching a keyword. Sources: SAM.gov + EU TED + UK Find-a-Tender.
+      Returns due dates, set-aside types, agencies.
+
+  # ── T19 — Regulatory ────────────────────────────────────────────────────────
+  - name: regulatory_search_open_rulemakings
+    description: >
+      Open rulemakings and public comment periods. Source: Regulations.gov + Federal Register.
+      Returns docket title, agency, comment deadline.
+
+  - name: regulatory_fetch_docket_details
+    description: >
+      Full docket details by ID. Source: Regulations.gov.
+      Returns documents, comments, summary, agency contact.
+
+  - name: regulatory_fetch_federal_register_notices
+    description: >
+      Recent Federal Register notices by agency. Source: Federal Register API.
+      Returns type, publication date, abstract.
+
+  # ── Shared utilities ────────────────────────────────────────────────────────
+  - name: report_feedback
+    description: >
+      Report an incorrect, incomplete, or stale tool result.
+      Always returns {status: 'recorded'}.
+
+  - name: report_mcpize_link
+    description: >
+      Check subscription status and retrieve upgrade URL if required.
+
+  - name: validate_tool_output
+    description: >
+      Validate any DataNexus tool response for data quality anomalies.
+      Two-layer validation: deterministic rules plus Haiku AI review.
+      Auto-files feedback on confirmed issues.

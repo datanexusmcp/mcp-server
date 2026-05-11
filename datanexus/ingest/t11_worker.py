@@ -21,8 +21,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from datanexus.core.cache import set_cached
-from datanexus.core.circuit_breaker import record_failure, record_success
+from datanexus.core.circuit_breaker import record_failure_sync, record_success_sync
 from datanexus.core.ingest_base import IngestBase
 
 log = logging.getLogger("datanexus.ingest.t11")
@@ -87,7 +86,7 @@ class EPOPatentWorker(IngestBase):
                             except Exception:
                                 pass
 
-                    record_success("epo_ops")
+                    record_success_sync("epo_ops")
                     token_bytes = resp.content
                     log.info(json.dumps({
                         "ts":         _iso_now(),
@@ -95,7 +94,7 @@ class EPOPatentWorker(IngestBase):
                         "expires_in": expires_in,
                     }))
             except Exception as exc:
-                record_failure("epo_ops")
+                record_failure_sync("epo_ops")
                 log.warning(json.dumps({
                     "ts":    _iso_now(),
                     "event": "t11_epo_token_refresh_failed",
@@ -122,14 +121,14 @@ class EPOPatentWorker(IngestBase):
                     headers={"Content-Type": "application/json"},
                 )
                 resp.raise_for_status()
-                record_success("patentsview")
+                record_success_sync("patentsview")
                 log.info(json.dumps({
                     "ts":    _iso_now(),
                     "event": "t11_patentsview_probe_ok",
                     "bytes": len(resp.content),
                 }))
         except Exception as exc:
-            record_failure("patentsview")
+            record_failure_sync("patentsview")
             log.warning(json.dumps({
                 "ts":    _iso_now(),
                 "event": "t11_patentsview_probe_failed",

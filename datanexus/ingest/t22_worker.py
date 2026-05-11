@@ -20,8 +20,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from datanexus.core.cache import compute_payload_hash, set_cached
-from datanexus.core.circuit_breaker import record_failure, record_success
+from datanexus.core.circuit_breaker import record_failure_sync, record_success_sync
 from datanexus.core.ingest_base import IngestBase
 
 log = logging.getLogger("datanexus.ingest.t22")
@@ -172,7 +171,7 @@ class NPPESWorker(IngestBase):
                     if results:
                         await _cache_speciality(speciality, results)
                         fetched += 1
-                        record_success("nppes")
+                        record_success_sync("nppes")
                     else:
                         log.info(json.dumps({
                             "ts":         _iso_now(),
@@ -188,7 +187,7 @@ class NPPESWorker(IngestBase):
                         "error":      str(exc),
                     }))
                     if failed >= 5:
-                        record_failure("nppes")
+                        record_failure_sync("nppes")
                     # Continue to next speciality — never crash the worker
                     await asyncio.sleep(1)
                     continue

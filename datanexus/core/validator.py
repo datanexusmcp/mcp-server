@@ -194,10 +194,14 @@ def _apply_t22_rules(
 
 def _score_to_level(score: float) -> str:
     """Map CVSS base score to severity level string."""
-    if score == 0.0: return "NONE"
-    if score < 4.0:  return "LOW"
-    if score < 7.0:  return "MEDIUM"
-    if score < 9.0:  return "HIGH"
+    if score == 0.0:
+        return "NONE"
+    if score < 4.0:
+        return "LOW"
+    if score < 7.0:
+        return "MEDIUM"
+    if score < 9.0:
+        return "HIGH"
     return "CRITICAL"
 
 

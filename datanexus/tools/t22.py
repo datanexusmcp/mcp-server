@@ -47,11 +47,12 @@ from datanexus.core.cache import (
 from datanexus.core.circuit_breaker import (
     get_staleness_notice,
     is_tripped,
-    record_failure,
-    record_success,
+    record_failure_sync,
+    record_success_sync,
 )
 from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
+from datanexus.core.timeout import with_timeout
 
 log = logging.getLogger("datanexus.tools.t22")
 
@@ -124,17 +125,12 @@ def _incr_calls(tool_id: str) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T22")
 async def fetch_npi_provider(npi_number: str) -> dict:
-    """
-    Fetch NPI registration details for any US healthcare provider by NPI number.
-    Returns provider name, speciality, taxonomy codes, practice address, and
-    registration status in AI-Ready Markdown.
-    Verified source: NPPES NPI Registry (CMS). No auth required.
-    Data freshness: 24-hour cache. Token-efficient.
-    Example: fetch_npi_provider('1003000126')
-    Returns: licence found / not found / registration status only — no suitability judgements.
-    """
+    """Use this to verify a US healthcare provider by their NPI number.
+    Provide the 10-digit NPI number.
+    Returns provider name, credential, speciality, and active status."""
     npi_clean = npi_number.strip().replace("-", "")
     params = {"npi_number": npi_clean}
 
@@ -180,14 +176,14 @@ async def fetch_npi_provider(npi_number: str) -> dict:
         try:
             result = await _fetch_npi_by_number(npi_clean)
         except httpx.TimeoutException:
-            record_failure("nppes")
+            record_failure_sync("nppes")
             return error_response(
                 ErrorCode.UPSTREAM_TIMEOUT,
                 "NPPES Registry timed out. Try again shortly.",
                 ctx.query_hash, 30, False,
             )
         except Exception:
-            record_failure("nppes")
+            record_failure_sync("nppes")
             log.exception("t22.fetch_npi_provider unexpected error npi=%s", npi_clean)
             return error_response(
                 ErrorCode.INTERNAL_ERROR,
@@ -226,7 +222,7 @@ async def fetch_npi_provider(npi_number: str) -> dict:
         set_cached("T22", phash, payload, T22_TTL)
         set_cached("T22", phash + "_archive", payload, T22_TTL * 4)
         ctx.set_cache_hit(False)
-        record_success("nppes")
+        record_success_sync("nppes")
 
         log.info("t22.fetch_npi_provider ok npi=%s name=%s",
                  npi_clean, result.get("display_name", ""))
@@ -238,20 +234,16 @@ async def fetch_npi_provider(npi_number: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T22")
 async def search_npi_by_name(
     name: str,
     state: str = "",
     speciality: str = "",
 ) -> dict:
-    """
-    Search NPPES NPI Registry by provider name with optional state and speciality filters.
-    Returns up to 10 matching providers with NPI, name, speciality, and address in
-    AI-Ready Markdown. Verified source: NPPES (CMS). No auth required.
-    Data freshness: 24-hour cache. Token-efficient.
-    Example: search_npi_by_name('Smith', 'CA', 'Cardiology')
-    Returns: registration status only — no suitability judgements.
-    """
+    """Use this to find a healthcare provider by name when you do not have their NPI.
+    Provide name and optional state or speciality.
+    Returns matching providers with NPI numbers for precise lookup."""
     name_clean  = name.strip()
     state_clean = state.strip().upper()
     spec_clean  = speciality.strip()
@@ -284,14 +276,14 @@ async def search_npi_by_name(
         try:
             results = await _search_npi(name_clean, state_clean, spec_clean, limit=10)
         except httpx.TimeoutException:
-            record_failure("nppes")
+            record_failure_sync("nppes")
             return error_response(
                 ErrorCode.UPSTREAM_TIMEOUT,
                 "NPPES Registry timed out. Try again shortly.",
                 ctx.query_hash, 30, False,
             )
         except Exception:
-            record_failure("nppes")
+            record_failure_sync("nppes")
             log.exception("t22.search_npi_by_name unexpected error name=%s", name_clean)
             return error_response(
                 ErrorCode.INTERNAL_ERROR,
@@ -321,7 +313,7 @@ async def search_npi_by_name(
 
         set_cached("T22", phash, payload, T22_TTL)
         ctx.set_cache_hit(False)
-        record_success("nppes")
+        record_success_sync("nppes")
 
         log.info("t22.search_npi_by_name results=%d name=%s state=%s",
                  len(results), name_clean, state_clean)
@@ -333,17 +325,12 @@ async def search_npi_by_name(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T22")
 async def fetch_finra_broker(crd_number: str) -> dict:
-    """
-    Fetch FINRA BrokerCheck registration details for any US broker or investment
-    adviser by CRD number. Returns registration status, qualifications, disclosures,
-    and employment history in AI-Ready Markdown.
-    Verified source: FINRA BrokerCheck. Data freshness: 24-hour cache. Token-efficient.
-    Example: fetch_finra_broker('1234567')
-    If FINRA_API_KEY not configured: returns NPPES-only data with source limitation notice.
-    Returns: registration status only — no suitability judgements.
-    """
+    """Use this to verify a financial broker or advisor is registered with FINRA.
+    Provide their name or CRD number.
+    Returns registration status, licences held, and disclosure history."""
     crd_clean = crd_number.strip().lstrip("0") or "0"
     params = {"crd_number": crd_clean}
 
@@ -421,14 +408,14 @@ async def fetch_finra_broker(crd_number: str) -> dict:
         try:
             result = await _fetch_finra_crd(crd_clean)
         except httpx.TimeoutException:
-            record_failure("finra")
+            record_failure_sync("finra")
             return error_response(
                 ErrorCode.UPSTREAM_TIMEOUT,
                 "FINRA BrokerCheck timed out. Try again shortly.",
                 ctx.query_hash, 30, False,
             )
         except Exception:
-            record_failure("finra")
+            record_failure_sync("finra")
             log.exception("t22.fetch_finra_broker unexpected error crd=%s", crd_clean)
             return error_response(
                 ErrorCode.INTERNAL_ERROR,
@@ -466,7 +453,7 @@ async def fetch_finra_broker(crd_number: str) -> dict:
         set_cached("T22", phash, payload, T22_TTL)
         set_cached("T22", phash + "_archive", payload, T22_TTL * 4)
         ctx.set_cache_hit(False)
-        record_success("finra")
+        record_success_sync("finra")
 
         log.info("t22.fetch_finra_broker ok crd=%s", crd_clean)
         return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
@@ -477,17 +464,12 @@ async def fetch_finra_broker(crd_number: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T22")
 async def check_sam_exclusion(name_or_ein: str) -> dict:
-    """
-    Check whether an individual or entity appears on the SAM.gov federal
-    exclusions list. Returns found / not found status with exclusion details
-    where applicable, in AI-Ready Markdown.
-    Verified source: SAM.gov public exclusions registry. Token-efficient.
-    Data freshness: 24-hour cache.
-    Example: check_sam_exclusion('John Smith') or check_sam_exclusion('12-3456789')
-    Returns: exclusion found / not found only — no risk judgements.
-    """
+    """Use this to check whether a person or company is excluded from US federal contracting.
+    Provide their name or EIN.
+    Returns whether they appear on the SAM.gov exclusions list."""
     query_clean = name_or_ein.strip()
     params = {"name_or_ein": query_clean}
 
@@ -529,14 +511,14 @@ async def check_sam_exclusion(name_or_ein: str) -> dict:
         try:
             result = await _check_sam_exclusion_live(query_clean)
         except httpx.TimeoutException:
-            record_failure("sam_exclusions")
+            record_failure_sync("sam_exclusions")
             return error_response(
                 ErrorCode.UPSTREAM_TIMEOUT,
                 "SAM.gov timed out. Try again shortly.",
                 ctx.query_hash, 30, False,
             )
         except Exception:
-            record_failure("sam_exclusions")
+            record_failure_sync("sam_exclusions")
             log.exception("t22.check_sam_exclusion unexpected error query=%s", query_clean)
             return error_response(
                 ErrorCode.INTERNAL_ERROR,
@@ -567,7 +549,7 @@ async def check_sam_exclusion(name_or_ein: str) -> dict:
         set_cached("T22", phash, payload, T22_TTL)
         set_cached("T22", phash + "_archive", payload, T22_TTL * 4)
         ctx.set_cache_hit(False)
-        record_success("sam_exclusions")
+        record_success_sync("sam_exclusions")
 
         log.info("t22.check_sam_exclusion ok query=%s found=%s",
                  query_clean, result.get("exclusion_found", False))
@@ -579,7 +561,6 @@ async def check_sam_exclusion(name_or_ein: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _fetch_npi_by_number(npi: str) -> Optional[dict]:
-    """Fetch a single NPI record from NPPES API v2.1."""
     async with httpx.AsyncClient(
         timeout=_HTTP_TIMEOUT, headers=_HEADERS, follow_redirects=True
     ) as client:
@@ -602,7 +583,6 @@ async def _search_npi(
     speciality: str,
     limit: int = 10,
 ) -> list:
-    """Search NPPES by name, state, and speciality."""
     params: dict = {"version": "2.1", "limit": str(limit)}
 
     # Split name into first/last if space present, else search as organization name
@@ -630,7 +610,6 @@ async def _search_npi(
 
 
 async def _fetch_finra_crd(crd: str) -> Optional[dict]:
-    """Fetch a FINRA BrokerCheck record by CRD number."""
     headers = {**_HEADERS, "Authorization": f"Bearer {_FINRA_KEY}"}
     url = f"{FINRA_API}/individual/{crd}"
 
@@ -645,7 +624,6 @@ async def _fetch_finra_crd(crd: str) -> Optional[dict]:
 
 
 async def _check_sam_exclusion_live(query: str) -> dict:
-    """Search SAM.gov exclusions by name or EIN."""
     # Determine if query looks like an EIN (digits + optional dash)
     ein_digits = query.replace("-", "").strip()
     is_ein = ein_digits.isdigit() and len(ein_digits) == 9

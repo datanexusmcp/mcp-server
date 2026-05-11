@@ -33,7 +33,7 @@ if _fte_raw:
         )
 
 # --- Auth -----------------------------------------------------------------
-DATANEXUS_API_KEY: str = os.environ.get("DATANEXUS_API_KEY", "")
+DATANEXUS_API_KEY: str = os.environ.get("DATANEXUS_API_KEY", "")  # pragma: allowlist secret
 
 # --- T04 tool config ------------------------------------------------------
 T04_TOOL_ID = "T04"

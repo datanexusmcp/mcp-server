@@ -10,7 +10,7 @@ SET is a no-op.  The ingest worker and tool layer both tolerate this.
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 import redis.asyncio as aioredis
 

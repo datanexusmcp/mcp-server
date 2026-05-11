@@ -2,16 +2,21 @@
 datanexus/core/circuit_breaker.py — Per-source circuit breaker.
 
 Spec: DataNexus_MCP_Spec_v7_3.docx  Phase 1 / circuit_breaker.py
+      DataNexus_MCP_Spec_v7_5.docx  Sprint 3 P05 — async interface
 
 Rules (CLAUDE.md):
-- ALL state lives in Redis — no module-level dicts, no lru_cache.
+- ALL state lives in Redis — no module-level dicts, no in-process cache decorators.
 - Must work correctly across multiple Hetzner nodes (stateless app tier).
 - Gracefully handles Redis unavailability (fails open — assumes not tripped).
 
-Redis key prefix: datanexus:cb:{source_id}:
+Sync key prefix: datanexus:cb:{source_id}:
   :failures   — INCR counter, 600s TTL per increment
   :tripped    — SET flag when breaker trips
   :last_probe — SET timestamp of last probe attempt
+
+Async (P05) key prefix: circuit:{tool_id}:{upstream}
+  (hash)             — state, opened_at fields
+  circuit:fails:{tool_id}:{upstream}  — INCR failure counter
 
 Thresholds (spec):
   trip_threshold  = 3 consecutive failures
@@ -34,6 +39,11 @@ _REDIS_URL = os.environ.get("DATANEXUS_REDIS_URL", "redis://localhost:6379")
 TRIP_THRESHOLD  = 3
 TRIP_WINDOW     = 600   # seconds
 PROBE_INTERVAL  = 900   # seconds
+
+# P05 async thresholds
+FAILURE_THRESHOLD = 3
+FAILURE_WINDOW_S  = 60
+RESET_TIMEOUT_S   = 30
 
 _redis_client: Optional[redis_lib.Redis] = None
 
@@ -68,11 +78,11 @@ def _key_last_probe(source_id: str) -> str:
     return f"datanexus:cb:{source_id}:last_probe"
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Sync public API (used by ingest workers and tool handlers) ────────────────
 
-def record_failure(source_id: str) -> bool:
+def record_failure_sync(source_id: str) -> bool:
     """
-    Record one upstream failure for source_id.
+    Record one upstream failure for source_id (synchronous).
 
     Increments the :failures counter (TTL=TRIP_WINDOW per call).
     If count >= TRIP_THRESHOLD: sets :tripped flag, logs structured JSON.
@@ -99,13 +109,13 @@ def record_failure(source_id: str) -> bool:
                 return True
         return False
     except Exception as exc:
-        log.warning("circuit_breaker.record_failure source=%s: %s", source_id, exc)
+        log.warning("circuit_breaker.record_failure_sync source=%s: %s", source_id, exc)
         return False
 
 
-def record_success(source_id: str) -> None:
+def record_success_sync(source_id: str) -> None:
     """
-    Record a successful upstream call for source_id.
+    Record a successful upstream call for source_id (synchronous).
 
     Deletes :failures counter and :tripped flag.
     Logs structured JSON on reset.
@@ -123,7 +133,70 @@ def record_success(source_id: str) -> None:
                 "source": source_id,
             }))
     except Exception as exc:
-        log.warning("circuit_breaker.record_success source=%s: %s", source_id, exc)
+        log.warning("circuit_breaker.record_success_sync source=%s: %s", source_id, exc)
+
+
+# ── Async public API (P05 — used by ingest_base and prewarm) ──────────────────
+
+async def is_circuit_open(r, tool_id: str, upstream: str) -> bool:
+    """
+    Check whether the async circuit breaker is open for tool_id/upstream.
+
+    - Reads hash at circuit:{tool_id}:{upstream}
+    - If state == 'open' and opened_at within RESET_TIMEOUT_S: True (open)
+    - If state == 'open' but timeout elapsed: set half-open, return False
+    - Otherwise: False (closed — allow request)
+    Fails open: any exception returns False.
+    """
+    try:
+        state = await r.hgetall(f"circuit:{tool_id}:{upstream}")
+        if not state:
+            return False
+        if state.get("state") == "open":
+            if time.time() - float(state.get("opened_at", 0)) > RESET_TIMEOUT_S:
+                await r.hset(f"circuit:{tool_id}:{upstream}", "state", "half-open")
+                return False
+            return True
+        return False
+    except Exception as exc:
+        log.warning("circuit_breaker.is_circuit_open tool=%s upstream=%s: %s",
+                    tool_id, upstream, exc)
+        return False
+
+
+async def record_failure(r, tool_id: str, upstream: str) -> None:
+    """
+    Record one upstream failure for tool_id/upstream (async, P05).
+
+    Increments circuit:fails:{tool_id}:{upstream} counter with FAILURE_WINDOW_S TTL.
+    Opens the circuit when count >= FAILURE_THRESHOLD.
+    """
+    try:
+        fails_key = f"circuit:fails:{tool_id}:{upstream}"
+        count = await r.incr(fails_key)
+        await r.expire(fails_key, FAILURE_WINDOW_S)
+        if count >= FAILURE_THRESHOLD:
+            await r.hset(
+                f"circuit:{tool_id}:{upstream}",
+                mapping={"state": "open", "opened_at": str(time.time())},
+            )
+    except Exception as exc:
+        log.warning("circuit_breaker.record_failure tool=%s upstream=%s: %s",
+                    tool_id, upstream, exc)
+
+
+async def record_success(r, tool_id: str, upstream: str) -> None:
+    """
+    Record a successful upstream call for tool_id/upstream (async, P05).
+
+    Resets circuit state to closed and clears failure counter.
+    """
+    try:
+        await r.hset(f"circuit:{tool_id}:{upstream}", "state", "closed")
+        await r.delete(f"circuit:fails:{tool_id}:{upstream}")
+    except Exception as exc:
+        log.warning("circuit_breaker.record_success tool=%s upstream=%s: %s",
+                    tool_id, upstream, exc)
 
 
 def is_tripped(source_id: str) -> bool:

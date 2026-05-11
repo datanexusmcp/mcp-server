@@ -23,7 +23,6 @@ Circuit breaker source IDs: "iana_rdap", "crt_sh", "cloudflare_doh"
 
 import json
 import logging
-import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -43,11 +42,12 @@ from datanexus.core.cache import (
 from datanexus.core.circuit_breaker import (
     get_staleness_notice,
     is_tripped,
-    record_failure,
-    record_success,
+    record_failure_sync,
+    record_success_sync,
 )
 from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
+from datanexus.core.timeout import with_timeout
 
 log = logging.getLogger("datanexus.tools.t07")
 
@@ -118,16 +118,12 @@ def _incr_calls(tool_id: str) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T07")
 async def fetch_domain_rdap(domain: str) -> dict:
-    """
-    Fetch domain registration details via IANA RDAP (modern WHOIS replacement).
-    Returns registrar, registration date, expiry date, nameservers, and
-    registrant info (where public) in AI-Ready Markdown.
-    Verified source: IANA RDAP. Data freshness: 4-hour cache. Token-efficient.
-    Example: fetch_domain_rdap('stripe.com')
-    Returns: registry data only — passive lookup, no active probing.
-    """
+    """Use this to look up domain registration details and ownership.
+    Provide the domain name such as example.com.
+    Returns registrar, registration date, expiry date, and current status."""
     domain_clean = domain.strip().lower().lstrip("www.").lstrip("https://").lstrip("http://")
     # Strip any trailing path
     domain_clean = domain_clean.split("/")[0]
@@ -172,14 +168,14 @@ async def fetch_domain_rdap(domain: str) -> dict:
         try:
             result = await _fetch_rdap(domain_clean)
         except httpx.TimeoutException:
-            record_failure("iana_rdap")
+            record_failure_sync("iana_rdap")
             return error_response(
                 ErrorCode.UPSTREAM_TIMEOUT,
                 "IANA RDAP timed out. Try again shortly.",
                 ctx.query_hash, 30, False,
             )
         except Exception:
-            record_failure("iana_rdap")
+            record_failure_sync("iana_rdap")
             log.exception("t07.fetch_domain_rdap error domain=%s", domain_clean)
             return error_response(
                 ErrorCode.INTERNAL_ERROR,
@@ -218,7 +214,7 @@ async def fetch_domain_rdap(domain: str) -> dict:
         set_cached("T07", phash, payload, T07_TTL)
         set_cached("T07", phash + "_archive", payload, T07_TTL * 6)
         ctx.set_cache_hit(False)
-        record_success("iana_rdap")
+        record_success_sync("iana_rdap")
 
         log.info("t07.fetch_domain_rdap ok domain=%s registrar=%s",
                  domain_clean, result.get("registrar", ""))
@@ -230,16 +226,12 @@ async def fetch_domain_rdap(domain: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T07")
 async def fetch_ssl_certificate_chain(domain: str) -> dict:
-    """
-    Fetch SSL certificate history for any domain from Certificate Transparency logs.
-    Returns issuer, subject, validity dates, and SANs in AI-Ready Markdown.
-    Verified source: crt.sh Certificate Transparency.
-    Data freshness: 4-hour cache. Token-efficient.
-    Example: fetch_ssl_certificate_chain('github.com')
-    Returns: certificate registry data only — passive lookup.
-    """
+    """Use this to inspect the SSL certificate chain for a domain.
+    Provide the domain name.
+    Returns certificate issuer, validity dates, and full chain detail."""
     domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
     params = {"domain": domain_clean, "query_type": "cert_chain"}
 
@@ -270,14 +262,14 @@ async def fetch_ssl_certificate_chain(domain: str) -> dict:
         try:
             certs = await _fetch_crt_sh(domain_clean, limit=10)
         except httpx.TimeoutException:
-            record_failure("crt_sh")
+            record_failure_sync("crt_sh")
             return error_response(
                 ErrorCode.UPSTREAM_TIMEOUT,
                 "crt.sh timed out. Try again shortly.",
                 ctx.query_hash, 30, False,
             )
         except Exception:
-            record_failure("crt_sh")
+            record_failure_sync("crt_sh")
             log.exception("t07.fetch_ssl_certificate_chain error domain=%s", domain_clean)
             return error_response(
                 ErrorCode.INTERNAL_ERROR,
@@ -307,7 +299,7 @@ async def fetch_ssl_certificate_chain(domain: str) -> dict:
 
         set_cached("T07", phash, payload, T07_TTL)
         ctx.set_cache_hit(False)
-        record_success("crt_sh")
+        record_success_sync("crt_sh")
 
         log.info("t07.fetch_ssl_certificate_chain ok domain=%s certs=%d",
                  domain_clean, len(certs))
@@ -319,16 +311,12 @@ async def fetch_ssl_certificate_chain(domain: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T07")
 async def fetch_dns_records(domain: str, record_types: list) -> dict:
-    """
-    Fetch DNS records for any domain via Cloudflare DNS over HTTPS.
-    Returns A, AAAA, MX, TXT, NS, CNAME records as structured AI-Ready Markdown.
-    Verified source: Cloudflare DoH. Token-efficient.
-    Data freshness: 4-hour cache.
-    Example: fetch_dns_records('cloudflare.com', ['A', 'MX', 'TXT'])
-    Returns: DNS registry data only — passive lookup, no active interrogation.
-    """
+    """Use this to get DNS records for a domain.
+    Provide the domain name and optional record type such as A, MX, or TXT.
+    Returns all matching DNS records currently in effect."""
     domain_clean  = domain.strip().lower().split("/")[0]
     # Normalise and deduplicate record types — uppercase, max 10
     valid_types = {"A", "AAAA", "MX", "TXT", "NS", "CNAME", "SOA", "CAA", "SRV"}
@@ -365,14 +353,14 @@ async def fetch_dns_records(domain: str, record_types: list) -> dict:
         try:
             records = await _fetch_dns_records(domain_clean, types_clean)
         except httpx.TimeoutException:
-            record_failure("cloudflare_doh")
+            record_failure_sync("cloudflare_doh")
             return error_response(
                 ErrorCode.UPSTREAM_TIMEOUT,
                 "Cloudflare DNS timed out. Try again shortly.",
                 ctx.query_hash, 30, False,
             )
         except Exception:
-            record_failure("cloudflare_doh")
+            record_failure_sync("cloudflare_doh")
             log.exception("t07.fetch_dns_records error domain=%s", domain_clean)
             return error_response(
                 ErrorCode.INTERNAL_ERROR,
@@ -403,7 +391,7 @@ async def fetch_dns_records(domain: str, record_types: list) -> dict:
 
         set_cached("T07", phash, payload, T07_TTL)
         ctx.set_cache_hit(False)
-        record_success("cloudflare_doh")
+        record_success_sync("cloudflare_doh")
 
         log.info("t07.fetch_dns_records ok domain=%s types=%s",
                  domain_clean, types_found)
@@ -415,17 +403,12 @@ async def fetch_dns_records(domain: str, record_types: list) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@with_timeout
 @verify_entitlement("T07")
 async def fetch_domain_history(domain: str) -> dict:
-    """
-    Fetch historical SSL certificate issuance for a domain from Certificate
-    Transparency logs. Useful for detecting domain ownership changes or
-    unexpected certificate issuance events over time.
-    Verified source: crt.sh. Token-efficient.
-    Data freshness: 4-hour cache.
-    Example: fetch_domain_history('example.com')
-    Returns: certificate log history only — passive CT log lookup.
-    """
+    """Use this to get historical SSL certificate records for a domain.
+    Provide the domain name.
+    Returns past certificates from Certificate Transparency logs."""
     domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
     params = {"domain": domain_clean, "query_type": "history"}
 
@@ -460,14 +443,14 @@ async def fetch_domain_history(domain: str) -> dict:
                 # Fallback to exact domain
                 history = await _fetch_crt_sh(domain_clean, limit=50)
         except httpx.TimeoutException:
-            record_failure("crt_sh")
+            record_failure_sync("crt_sh")
             return error_response(
                 ErrorCode.UPSTREAM_TIMEOUT,
                 "crt.sh timed out. Try again shortly.",
                 ctx.query_hash, 30, False,
             )
         except Exception:
-            record_failure("crt_sh")
+            record_failure_sync("crt_sh")
             log.exception("t07.fetch_domain_history error domain=%s", domain_clean)
             return error_response(
                 ErrorCode.INTERNAL_ERROR,
@@ -497,7 +480,7 @@ async def fetch_domain_history(domain: str) -> dict:
 
         set_cached("T07", phash, payload, T07_TTL)
         ctx.set_cache_hit(False)
-        record_success("crt_sh")
+        record_success_sync("crt_sh")
 
         log.info("t07.fetch_domain_history ok domain=%s events=%d",
                  domain_clean, len(history))
@@ -509,7 +492,6 @@ async def fetch_domain_history(domain: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _get_rdap_bootstrap() -> dict:
-    """Fetch and cache the IANA RDAP bootstrap for DNS TLD→server mapping."""
     bootstrap = get_cached("T07", "rdap_bootstrap")
     if bootstrap:
         return bootstrap
@@ -533,7 +515,6 @@ def _find_rdap_url(tld: str, bootstrap: dict) -> str:
 
 
 async def _fetch_rdap(domain: str) -> Optional[dict]:
-    """Fetch RDAP registration data for a domain, routing via IANA bootstrap."""
     tld = domain.rsplit(".", 1)[-1] if "." in domain else domain
 
     try:
@@ -610,7 +591,6 @@ def _normalise_rdap(raw: dict, domain: str) -> dict:
 
 
 async def _fetch_crt_sh(query: str, limit: int = 10) -> list:
-    """Fetch certificate records from crt.sh CT logs."""
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(20.0, connect=5.0),
         headers=_HEADERS,
@@ -656,7 +636,6 @@ async def _fetch_crt_sh(query: str, limit: int = 10) -> list:
 
 
 async def _fetch_dns_records(domain: str, record_types: list) -> dict:
-    """Fetch multiple DNS record types from Cloudflare DoH in parallel."""
     results: dict[str, list] = {}
 
     async with httpx.AsyncClient(

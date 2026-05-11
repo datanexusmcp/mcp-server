@@ -22,7 +22,7 @@ Return shape (exactly 5 keys, always present):
 
 Actions by outcome:
   breaking=True  + severity='high'   → HSET datanexus:schema:alerts:{tool_id}
-                                       record_failure(tool_id) × 3 (trip circuit)
+                                       record_failure_sync(tool_id) × 3 (trip circuit)
   breaking=True  + severity='medium' → HSET datanexus:schema:warnings:{tool_id}
                                        no circuit breaker
   breaking=False (any severity)      → update stored fingerprint in Redis only
@@ -39,12 +39,11 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
 
 import redis as redis_lib
 
 from datanexus.agents.haiku_classifier import classify
-from datanexus.core.circuit_breaker import record_failure
+from datanexus.core.circuit_breaker import record_failure_sync
 
 log = logging.getLogger("datanexus.agents.schema_monitor")
 
@@ -313,7 +312,7 @@ async def assess_schema_change(
         # Trip circuit breaker immediately (3 calls to reach threshold)
         _write_alert(tool_id, result)
         for _ in range(3):
-            record_failure(tool_id)
+            record_failure_sync(tool_id)
         log.error(json.dumps({
             "event":    "schema_breaking_high",
             "tool_id":  tool_id,
