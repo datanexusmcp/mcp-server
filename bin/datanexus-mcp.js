@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * DataNexus MCP — npm launcher.
+ * DataNexus MCP — stdio proxy for Glama and local MCP clients.
  *
- * Requires Python 3.12+ and the datanexus-mcp Python package:
- *   pip install datanexus-mcp
+ * Bridges stdio ↔ the live remote server at https://datanexusmcp.com/mcp
+ * using mcp-remote. No Python, no Redis, no PostgreSQL required.
  *
- * Then run via npx:
+ * Usage:
  *   npx -y @datanexusmcp/mcp-server
  *
- * Or add to Claude Desktop claude_desktop_config.json:
+ * Claude Desktop claude_desktop_config.json:
  *   {
  *     "mcpServers": {
  *       "datanexus": {
@@ -20,30 +20,24 @@
  */
 
 const { spawn } = require("child_process");
-const path = require("path");
 
-const python = process.env.DATANEXUS_PYTHON || "python3";
+const REMOTE_URL = "https://datanexusmcp.com/mcp";
 
-const child = spawn(python, ["-m", "datanexus.main"], {
+let proxyBin;
+try {
+  proxyBin = require.resolve("mcp-remote/dist/proxy.js");
+} catch (_) {
+  console.error("[DataNexus MCP] mcp-remote not found — reinstall: npm install @datanexusmcp/mcp-server");
+  process.exit(1);
+}
+
+const child = spawn(process.execPath, [proxyBin, REMOTE_URL], {
   stdio: "inherit",
-  env: {
-    ...process.env,
-  },
 });
 
 child.on("error", (err) => {
-  if (err.code === "ENOENT") {
-    console.error(
-      `[DataNexus MCP] Python interpreter not found: '${python}'\n` +
-      `Install Python 3.12+ and run: pip install datanexus-mcp\n` +
-      `Or set DATANEXUS_PYTHON=/path/to/python3`
-    );
-  } else {
-    console.error(`[DataNexus MCP] Failed to start server: ${err.message}`);
-  }
+  console.error(`[DataNexus MCP] Failed to start proxy: ${err.message}`);
   process.exit(1);
 });
 
-child.on("exit", (code) => {
-  process.exit(code ?? 0);
-});
+child.on("exit", (code) => process.exit(code ?? 0));
