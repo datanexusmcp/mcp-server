@@ -1,6 +1,6 @@
 {
   "name": "@datanexusmcp/mcp-server",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "DataNexus MCP — AI-Ready public data intelligence. 30 tools in 7 focused sub-servers: nonprofit, security, compliance, domain, legal, GovCon, and regulatory. Use search_datanexus_tools to find the right tool. No API key required for most tools.",
   "keywords": [
     "mcp",
@@ -37,11 +37,11 @@
   "homepage": "https://datanexusmcp.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/datanexusmcp/mcp-server.git"
+    "url": "git+https://github.com/datanexusmcp/mcp-server.git"
   },
   "license": "MIT",
   "bin": {
-    "datanexusmcp": "./bin/datanexus-mcp.js"
+    "datanexusmcp": "bin/datanexus-mcp.js"
   },
   "scripts": {
     "start": "node bin/datanexus-mcp.js"
