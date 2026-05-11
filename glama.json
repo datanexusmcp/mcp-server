@@ -1,6 +1,6 @@
 {
   "name": "DataNexus MCP",
-  "description": "AI-Ready public data intelligence. 30 tools in 7 focused sub-servers. Use search_datanexus_tools to find the right tool for your task. Nonprofit, security, compliance, domain, legal, GovCon, and regulatory data. Token-efficient AI-Ready Markdown. Verified sources.",
+  "description": "AI-Ready public data intelligence via the Model Context Protocol. 30 tools in 7 focused sub-servers. Start with search_datanexus_tools to find the right tool for your task. Covers nonprofit data (IRS 990), OSS vulnerabilities (CVE/CVSS), professional licences (NPI/FINRA), domain and DNS, patents (EPO/USPTO), government contracts (USASpending/SAM.gov), and regulatory dockets (Regulations.gov). Token-efficient AI-Ready Markdown. Verified sources.",
   "url": "https://datanexusmcp.com/mcp",
   "transport": "streamable-http",
   "remote": true,
@@ -16,123 +16,123 @@
   "tools": [
     {
       "name": "search_datanexus_tools",
-      "description": "Use this first. Find the right DataNexus tool by describing your task in plain English. Returns matching tools with usage instructions. Token-efficient entry point. AI-Ready Markdown. Verified source: DataNexus tool registry."
+      "description": "Use this first. Find the right DataNexus tool by describing your task in plain English. Returns matching tools with parameters and usage. Reduces context load from 40000 to 800 tokens. Token-efficient. AI-Ready output."
     },
     {
       "name": "nonprofit_fetch_nonprofit_by_ein",
-      "description": "Fetch IRS 990 data for any US nonprofit by EIN. Returns revenue, expenses, assets and mission in AI-Ready Markdown. Verified source: IRS EO BMF + IRS TEOS. Token-efficient."
+      "description": "Use this to look up IRS 990 filing data for any US nonprofit by EIN. Returns name, revenue, expenses, assets and mission. Verified source: IRS EO BMF + IRS TEOS. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "nonprofit_search_nonprofits_by_name",
-      "description": "Search US nonprofits by name. Returns top matches with EIN, NTEE code and state in AI-Ready Markdown. Verified source: IRS EO BMF. Token-efficient."
+      "description": "Use this to search US nonprofits by name with optional state filter. Returns up to 25 results with EIN, revenue and mission. Verified source: IRS EO BMF. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "nonprofit_fetch_charity_uk",
-      "description": "Fetch UK charity registration data from Charity Commission England and Wales. Returns income, activities and trustees in AI-Ready Markdown. Verified source: CCEW. Token-efficient."
+      "description": "Use this to look up UK registered charity details. Returns registration status, income, expenditure and activities. Verified source: UK Charity Commission (OGL v3). Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_fetch_package_vulnerabilities",
-      "description": "Fetch all known CVEs for any open source package across PyPI, npm, Maven, Go, Cargo. Returns severity, CVSS score and fixed versions in AI-Ready Markdown. Verified source: Google OSV.dev + NIST NVD. Token-efficient."
-    },
-    {
-      "name": "security_fetch_dependency_graph",
-      "description": "Fetch transitive dependency graph for a package version. Hard 8s timeout. Returns dependency tree in AI-Ready Markdown. Verified source: deps.dev (Google). Token-efficient."
+      "description": "Use this to find CVEs for any open source package. Provide package name, version and ecosystem (PyPI, npm, Maven, Go, Cargo). Returns severity, CVSS score and fixed versions. Verified source: Google OSV.dev + NIST NVD. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_fetch_cve_detail",
-      "description": "Fetch full CVE detail by ID including CVSS v3 scores and affected CPEs. AI-Ready Markdown. Verified source: NIST NVD. Token-efficient."
+      "description": "Use this to get full detail on a CVE by ID. Returns description, CVSS score, affected products and patch references. Verified source: NIST NVD. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "security_fetch_dependency_graph",
+      "description": "Use this to get the full dependency tree for a package version. Returns direct and transitive dependencies. Verified source: deps.dev (Google). Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_audit_sbom_vulnerabilities",
-      "description": "Audit a CycloneDX or SPDX SBOM against Google OSV.dev. Returns per-component vulnerability findings in AI-Ready Markdown. Verified source: OSV.dev. Token-efficient."
+      "description": "Use this to audit a Software Bill of Materials (SBOM) for known vulnerabilities. Accepts CycloneDX or SPDX JSON format. Verified source: Google OSV.dev batch API. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_fetch_package_licence",
-      "description": "Fetch SPDX licence identifier for any open source package version. AI-Ready Markdown. Verified source: deps.dev (Google). Token-efficient."
+      "description": "Use this to check the licence for an open source package version. Returns SPDX licence identifier. Verified source: deps.dev. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "compliance_fetch_npi_provider",
-      "description": "Fetch NPI registration for any US healthcare provider. Returns speciality, taxonomy and status in AI-Ready Markdown. Verified source: NPPES NPI Registry. Token-efficient."
+      "description": "Use this to verify a US healthcare provider by NPI number. Returns name, speciality, taxonomy and registration status. Verified source: NPPES NPI Registry (CMS). Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "compliance_search_npi_by_name",
-      "description": "Search NPI registry by provider name with optional state and speciality filters. AI-Ready Markdown. Verified source: NPPES NPI Registry. Token-efficient."
+      "description": "Use this to find a healthcare provider by name. Optional state and speciality filters. Returns up to 10 matching providers. Verified source: NPPES NPI Registry. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "compliance_fetch_finra_broker",
-      "description": "Fetch FINRA BrokerCheck registration by CRD number. Returns licences, disclosures and employment history in AI-Ready Markdown. Verified source: FINRA BrokerCheck. Token-efficient."
+      "description": "Use this to verify a financial broker or adviser by CRD number. Returns registration status, qualifications and disclosures. Verified source: FINRA BrokerCheck. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "compliance_check_sam_exclusion",
-      "description": "Check federal exclusions list by name or EIN. Returns debarred and suspended entities in AI-Ready Markdown. Verified source: SAM.gov. Token-efficient."
+      "description": "Use this to check if an entity is excluded from US federal contracts. Provide name or EIN. Verified source: SAM.gov federal exclusions list. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "domain_fetch_domain_rdap",
-      "description": "Fetch domain registration via IANA RDAP. Returns registrar, expiry and nameservers in AI-Ready Markdown. Verified source: IANA RDAP. Token-efficient."
+      "description": "Use this to look up domain registration details. Returns registrar, registration date, expiry and nameservers. Verified source: IANA RDAP (modern WHOIS replacement). Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "domain_fetch_ssl_certificate_chain",
-      "description": "Fetch Certificate Transparency log certificates for a domain. Returns issuer, SANs and validity in AI-Ready Markdown. Verified source: crt.sh. Token-efficient."
+      "description": "Use this to fetch SSL certificate history for a domain from Certificate Transparency logs. Returns issuer, validity dates and SANs. Verified source: crt.sh. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "domain_fetch_dns_records",
-      "description": "Fetch A, AAAA, MX, TXT, NS, CNAME records for any domain. AI-Ready Markdown. Verified source: Cloudflare DoH. Token-efficient."
+      "description": "Use this to fetch DNS records for a domain. Supports A, AAAA, MX, TXT, NS, CNAME. Verified source: Cloudflare DoH. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "domain_fetch_domain_history",
-      "description": "Fetch historical certificate issuance from CT logs to track domain ownership changes. AI-Ready Markdown. Verified source: crt.sh. Token-efficient."
+      "description": "Use this to see historical SSL certificate issuance for a domain. Useful for detecting unexpected certificate issuance. Verified source: crt.sh Certificate Transparency. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "legal_fetch_patent_by_number",
-      "description": "Fetch patent details from EPO, USPTO or WIPO by number. Returns title, abstract, inventors and citations in AI-Ready Markdown. Verified source: EPO OPS + USPTO. Token-efficient."
+      "description": "Use this to fetch patent details by number. Provide patent number and jurisdiction (EP, US, WO). Returns title, abstract, inventors and citation count. Verified source: EPO OPS + USPTO. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "legal_search_patents_by_keyword",
-      "description": "Search EP, US and WO patents by keyword and date range. Returns matching patents in AI-Ready Markdown. Verified source: EPO OPS + USPTO. Token-efficient."
+      "description": "Use this to search patents by keyword. Returns up to 10 matching patents with title, abstract and filing date. Verified source: EPO OPS + USPTO PatentsView. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "legal_fetch_patent_citations",
-      "description": "Fetch forward and backward citations for a patent. Returns who cited it and what it cites in AI-Ready Markdown. Verified source: EPO OPS. Token-efficient."
+      "description": "Use this to fetch forward and backward citations for a patent. Useful for prior art research. Verified source: EPO OPS. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "legal_fetch_inventor_portfolio",
-      "description": "Fetch patent portfolio for an inventor, optionally filtered by assignee. AI-Ready Markdown. Verified source: EPO OPS. Token-efficient."
+      "description": "Use this to fetch the patent portfolio for an inventor. Optional assignee filter. Verified source: EPO OPS + USPTO. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "govcon_search_contract_awards",
-      "description": "Search government contract awards by keyword and agency. Returns award amounts, vendors and NAICS codes in AI-Ready Markdown. Verified source: USASpending.gov + SAM.gov. Token-efficient."
+      "description": "Use this to search government contract awards by keyword and agency. Returns award amounts, vendors and NAICS codes. Verified source: USASpending.gov + SAM.gov. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "govcon_fetch_vendor_contract_history",
-      "description": "Fetch full contract history for a specific vendor. Returns award totals, top agencies and contract types in AI-Ready Markdown. Verified source: USASpending.gov. Token-efficient."
+      "description": "Use this to look up contract award history for a specific vendor. Returns total awards, top agencies and recent contracts. Verified source: USASpending.gov. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "govcon_fetch_open_solicitations",
-      "description": "Fetch open bid opportunities matching a keyword. Returns due dates, set-aside types and agencies in AI-Ready Markdown. Verified source: SAM.gov + EU TED + UK Find-a-Tender. Token-efficient."
+      "description": "Use this to find open contract solicitations matching a keyword. Returns title, agency, deadline and estimated value. Verified source: SAM.gov + USASpending.gov. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "regulatory_search_open_rulemakings",
-      "description": "Search open rulemakings and comment periods on Regulations.gov and Federal Register. Returns docket title, agency and deadline in AI-Ready Markdown. Verified source: Regulations.gov. Token-efficient."
+      "description": "Use this to find open rulemakings and comment periods. Returns docket title, agency and comment deadline. Verified source: Regulations.gov + Federal Register. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "regulatory_fetch_docket_details",
-      "description": "Fetch full docket details by ID including documents, comments and agency contact. AI-Ready Markdown. Verified source: Regulations.gov. Token-efficient."
+      "description": "Use this to get full details for a regulatory docket by ID. Returns title, agency, status and comment count. Verified source: Regulations.gov. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "regulatory_fetch_federal_register_notices",
-      "description": "Fetch recent Federal Register notices by agency. Returns type, publication date and abstract in AI-Ready Markdown. Verified source: Federal Register API. Token-efficient."
+      "description": "Use this to fetch recent Federal Register notices for an agency. Returns document type, title and effective date. Verified source: Federal Register API. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "report_feedback",
-      "description": "Report an incorrect, incomplete or stale DataNexus tool result. Always returns status recorded. AI-Ready output. Token-efficient."
+      "description": "Use this to report a data quality issue with any DataNexus tool response. Provide tool_id, query_hash from the response, signal type and optional comment. Always returns recorded status. Token-efficient."
     },
     {
       "name": "report_mcpize_link",
-      "description": "Check subscription status and retrieve upgrade URL if required. Token-efficient."
+      "description": "Use this to check subscription status for DataNexus tools. Returns free status during free window or upgrade URL when paid tier is active. No parameters required. Token-efficient."
     },
     {
       "name": "validate_tool_output",
-      "description": "Validate any DataNexus tool response for data quality anomalies. Two-layer validation: deterministic rules plus Haiku AI review. Auto-files feedback on confirmed issues. AI-Ready output. Verified source: DataNexus internal validator. Token-efficient."
+      "description": "Use this to validate any DataNexus tool response for data quality anomalies. Two-layer validation: deterministic rules plus Haiku AI review. Auto-files feedback on confirmed issues. Never blocks. Verified source: DataNexus internal validator. Token-efficient. AI-Ready Markdown."
     }
   ]
 }
