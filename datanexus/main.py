@@ -6,19 +6,19 @@ Transport: streamable-http (CLAUDE.md rule — SSE deprecated April 2026)
 Server:    datanexusmcp.com  |  Hetzner CAX11  |  178.104.251.70
 
 Registered tools (29 total):
-  nonprofit  (3): fetch_nonprofit_by_ein, search_nonprofits_by_name, fetch_charity_uk
-  security   (5): fetch_package_vulnerabilities, fetch_dependency_graph,
-                  fetch_cve_detail, audit_sbom_vulnerabilities, fetch_package_licence
-  compliance (4): fetch_npi_provider, search_npi_by_name,
-                  fetch_finra_broker, check_sam_exclusion
-  domain     (4): fetch_domain_rdap, fetch_ssl_certificate_chain,
-                  fetch_dns_records, fetch_domain_history
-  legal      (4): fetch_patent_by_number, search_patents_by_keyword,
-                  fetch_patent_citations, fetch_inventor_portfolio
-  govcon     (3): search_contract_awards, fetch_vendor_contract_history,
-                  fetch_open_solicitations
-  regulatory (3): search_open_rulemakings, fetch_docket_details,
-                  fetch_federal_register_notices
+  nonprofit  (3): nonprofit_fetch_nonprofit_by_ein, nonprofit_search_nonprofits_by_name, nonprofit_fetch_charity_uk
+  security   (5): security_fetch_package_vulnerabilities, security_fetch_dependency_graph,
+                  security_fetch_cve_detail, security_audit_sbom_vulnerabilities, security_fetch_package_licence
+  compliance (4): compliance_fetch_npi_provider, compliance_search_npi_by_name,
+                  compliance_fetch_finra_broker, compliance_check_sam_exclusion
+  domain     (4): domain_fetch_domain_rdap, domain_fetch_ssl_certificate_chain,
+                  domain_fetch_dns_records, domain_fetch_domain_history
+  legal      (4): legal_fetch_patent_by_number, legal_search_patents_by_keyword,
+                  legal_fetch_patent_citations, legal_fetch_inventor_portfolio
+  govcon     (3): govcon_search_contract_awards, govcon_fetch_vendor_contract_history,
+                  govcon_fetch_open_solicitations
+  regulatory (3): regulatory_search_open_rulemakings, regulatory_fetch_docket_details,
+                  regulatory_fetch_federal_register_notices
   Shared     (3): report_feedback, report_mcpize_link, validate_tool_output
 
 Sprint 3 P01: 26 data tools regrouped into 7 FastMCP sub-servers via mount().
@@ -115,41 +115,42 @@ main = FastMCP(
     "DataNexus MCP",
     lifespan=_lifespan,
     instructions=(
+        "Use search_datanexus_tools first to find the right tool for your task. "
         "DataNexus MCP provides AI-Ready access to public data sources. "
         "Token-efficient. Verified sources. "
         "T04: US/UK nonprofits — IRS EO BMF + IRS TEOS + UK Charity Commission. "
-        "fetch_nonprofit_by_ein: look up any US nonprofit by EIN. "
-        "search_nonprofits_by_name: search US nonprofits by name and state. "
-        "fetch_charity_uk: look up UK registered charities. "
+        "nonprofit_fetch_nonprofit_by_ein: look up any US nonprofit by EIN. "
+        "nonprofit_search_nonprofits_by_name: search US nonprofits by name and state. "
+        "nonprofit_fetch_charity_uk: look up UK registered charities. "
         "T10: OSS Dependency & Vulnerability Intelligence — OSV.dev + NIST NVD + deps.dev. "
-        "fetch_package_vulnerabilities: CVEs for a package version. "
-        "fetch_dependency_graph: full dep tree (hard 8s timeout). "
-        "fetch_cve_detail: full CVE detail by CVE ID. "
-        "audit_sbom_vulnerabilities: audit CycloneDX/SPDX SBOM against OSV.dev. "
-        "fetch_package_licence: SPDX licence for a package version. "
+        "security_fetch_package_vulnerabilities: CVEs for a package version. "
+        "security_fetch_dependency_graph: full dep tree (hard 8s timeout). "
+        "security_fetch_cve_detail: full CVE detail by CVE ID. "
+        "security_audit_sbom_vulnerabilities: audit CycloneDX/SPDX SBOM against OSV.dev. "
+        "security_fetch_package_licence: SPDX licence for a package version. "
         "T22: Professional Licence Verification — NPPES NPI Registry + FINRA BrokerCheck + SAM.gov. "
-        "fetch_npi_provider: look up any US healthcare provider by NPI number. "
-        "search_npi_by_name: search NPI registry by provider name with state/speciality filters. "
-        "fetch_finra_broker: look up FINRA BrokerCheck registration by CRD number. "
-        "check_sam_exclusion: check federal exclusions list by name or EIN. "
+        "compliance_fetch_npi_provider: look up any US healthcare provider by NPI number. "
+        "compliance_search_npi_by_name: search NPI registry by provider name with state/speciality filters. "
+        "compliance_fetch_finra_broker: look up FINRA BrokerCheck registration by CRD number. "
+        "compliance_check_sam_exclusion: check federal exclusions list by name or EIN. "
         "T07: Domain & DNS Intelligence — IANA RDAP + crt.sh + Cloudflare DoH. "
-        "fetch_domain_rdap: WHOIS-replacement RDAP lookup for any domain. "
-        "fetch_ssl_certificate_chain: CT log certificates for a domain. "
-        "fetch_dns_records: A/AAAA/MX/TXT/NS/CNAME records via Cloudflare DoH. "
-        "fetch_domain_history: historical certificate issuance from CT logs. "
+        "domain_fetch_domain_rdap: WHOIS-replacement RDAP lookup for any domain. "
+        "domain_fetch_ssl_certificate_chain: CT log certificates for a domain. "
+        "domain_fetch_dns_records: A/AAAA/MX/TXT/NS/CNAME records via Cloudflare DoH. "
+        "domain_fetch_domain_history: historical certificate issuance from CT logs. "
         "T11: Global Patent Intelligence — EPO OPS + USPTO PatentsView + WIPO PATENTSCOPE. "
-        "fetch_patent_by_number: full bibliographic data for a patent by number and jurisdiction. "
-        "search_patents_by_keyword: search EP/US/WO patents by keyword and date. "
-        "fetch_patent_citations: forward and backward citations for a patent. "
-        "fetch_inventor_portfolio: patent portfolio for an inventor, optionally by assignee. "
+        "legal_fetch_patent_by_number: full bibliographic data for a patent by number and jurisdiction. "
+        "legal_search_patents_by_keyword: search EP/US/WO patents by keyword and date. "
+        "legal_fetch_patent_citations: forward and backward citations for a patent. "
+        "legal_fetch_inventor_portfolio: patent portfolio for an inventor, optionally by assignee. "
         "T18: Government Contracting & Procurement — USASpending.gov + SAM.gov + EU TED + UK Find-a-Tender. "
-        "search_contract_awards: search federal contract awards by keyword and agency. "
-        "fetch_vendor_contract_history: contract history for a specific vendor. "
-        "fetch_open_solicitations: open bid opportunities matching a keyword. "
+        "govcon_search_contract_awards: search federal contract awards by keyword and agency. "
+        "govcon_fetch_vendor_contract_history: contract history for a specific vendor. "
+        "govcon_fetch_open_solicitations: open bid opportunities matching a keyword. "
         "T19: Regulatory Docket & Comment Tracking — Regulations.gov + Federal Register + EU Have Your Say. "
-        "search_open_rulemakings: open rulemakings and comment periods. "
-        "fetch_docket_details: full docket details by ID. "
-        "fetch_federal_register_notices: recent Federal Register notices by agency. "
+        "regulatory_search_open_rulemakings: open rulemakings and comment periods. "
+        "regulatory_fetch_docket_details: full docket details by ID. "
+        "regulatory_fetch_federal_register_notices: recent Federal Register notices by agency. "
         "All responses include query_hash, schema_version, data_as_of, ingest_healthy."
     ),
 )
