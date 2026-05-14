@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
@@ -53,6 +54,7 @@ from datanexus.ingest.t10_worker import (
     _normalise_osv_ecosystem,
     _strip_unsafe_fields,
 )
+from datanexus.analytics import track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t10")
 
@@ -109,119 +111,145 @@ async def fetch_package_vulnerabilities(
     """Use this to check whether a software package has known security vulnerabilities.
     Provide package name, version, and ecosystem (npm, PyPI, or Maven).
     Returns CVE IDs, severity scores, and available patch versions."""
-    pkg_clean = package.strip()
-    ver_clean = version.strip()
-    eco_clean = ecosystem.strip()
-    params    = {"package": pkg_clean, "version": ver_clean, "ecosystem": eco_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        pkg_clean = package.strip()
+        ver_clean = version.strip()
+        eco_clean = ecosystem.strip()
+        params    = {"package": pkg_clean, "version": ver_clean, "ecosystem": eco_clean}
 
-    async with AuditContext("T10", params, "1.0") as ctx:
-        phash = make_params_hash(params)
+        async with AuditContext("T10", params, "1.0") as ctx:
+            phash = make_params_hash(params)
 
-        # ── 1. Cache check ────────────────────────────────────────────────────
-        cached = get_cached("T10", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
-            }
+            # ── 1. Cache check ────────────────────────────────────────────────────
+            cached = get_cached("T10", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        # ── 2. Circuit breaker ────────────────────────────────────────────────
-        if is_tripped("osv_dev"):
-            archive = get_cached("T10", phash + "_archive")
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return {
-                "status":           "error",
-                "tool_id":          "T10",
-                "data":             archive or {},
-                "markdown_output":  _archive_markdown(archive, pkg_clean, ver_clean, eco_clean),
-                "staleness_notice": get_staleness_notice(
-                    "osv_dev", (archive or {}).get("data_as_of", "unknown"),
-                ),
-                "disclaimer":  T10_DISCLAIMER,
-                "cache_hit":   False,
-                "sha256_hash": "",
-                **standard_response_fields(ctx.query_hash, "", False),
-            }
+            # ── 2. Circuit breaker ────────────────────────────────────────────────
+            if is_tripped("osv_dev"):
+                archive = get_cached("T10", phash + "_archive")
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
+                return {
+                    "status":           "error",
+                    "tool_id":          "T10",
+                    "data":             archive or {},
+                    "markdown_output":  _archive_markdown(archive, pkg_clean, ver_clean, eco_clean),
+                    "staleness_notice": get_staleness_notice(
+                        "osv_dev", (archive or {}).get("data_as_of", "unknown"),
+                    ),
+                    "disclaimer":  T10_DISCLAIMER,
+                    "cache_hit":   False,
+                    "sha256_hash": "",
+                    **standard_response_fields(ctx.query_hash, "", False),
+                }
 
-        # ── 3. Live fetch — OSV.dev ───────────────────────────────────────────
-        osv_ecosystem = _normalise_osv_ecosystem(eco_clean)
-        try:
-            async with httpx.AsyncClient(
-                timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
-            ) as client:
-                osv_data = await query_osv_for_version(
-                    client, pkg_clean, ver_clean, osv_ecosystem,
+            # ── 3. Live fetch — OSV.dev ───────────────────────────────────────────
+            osv_ecosystem = _normalise_osv_ecosystem(eco_clean)
+            try:
+                async with httpx.AsyncClient(
+                    timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
+                ) as client:
+                    osv_data = await query_osv_for_version(
+                        client, pkg_clean, ver_clean, osv_ecosystem,
+                    )
+            except httpx.TimeoutException:
+                record_failure_sync("osv_dev")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                    message="OSV.dev timed out. Try again shortly.",
+                    query_hash=ctx.query_hash,
+                    retry_after=30,
+                    ingest_healthy=False,
                 )
-        except httpx.TimeoutException:
-            record_failure_sync("osv_dev")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_TIMEOUT,
-                message="OSV.dev timed out. Try again shortly.",
-                query_hash=ctx.query_hash,
-                retry_after=30,
-                ingest_healthy=False,
-            )
-        except httpx.HTTPStatusError:
-            record_failure_sync("osv_dev")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
-                message="OSV.dev temporarily unavailable.",
-                query_hash=ctx.query_hash,
-                retry_after=60,
-                ingest_healthy=False,
-            )
-        except Exception:
-            record_failure_sync("osv_dev")
-            log.exception("t10.fetch_package_vulnerabilities error pkg=%s", pkg_clean)
-            return error_response(
-                error_code=ErrorCode.INTERNAL_ERROR,
-                message="An internal error occurred. Please try again.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=False,
-            )
+            except httpx.HTTPStatusError:
+                record_failure_sync("osv_dev")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
+                    message="OSV.dev temporarily unavailable.",
+                    query_hash=ctx.query_hash,
+                    retry_after=60,
+                    ingest_healthy=False,
+                )
+            except Exception:
+                record_failure_sync("osv_dev")
+                log.exception("t10.fetch_package_vulnerabilities error pkg=%s", pkg_clean)
+                return error_response(
+                    error_code=ErrorCode.INTERNAL_ERROR,
+                    message="An internal error occurred. Please try again.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=False,
+                )
 
-        record_success_sync("osv_dev")
+            record_success_sync("osv_dev")
 
-        vulns      = osv_data.get("vulns", [])
-        # Phase 0 response-formatter fixes (query-time layer — belt-and-suspenders)
-        vulns      = _fmt_dedup_pysec_ghsa(vulns)
-        vulns      = _fmt_fix_severity_levels(vulns)
-        osv_data["vulns"] = vulns   # keep osv_data consistent for result_data
-        raw_bytes  = json.dumps(osv_data).encode()
-        phash_val  = _compute_hash(raw_bytes)
-        data_as_of = datetime.now(timezone.utc).isoformat()
-        markdown   = _build_vuln_markdown(vulns, pkg_clean, ver_clean, eco_clean)
+            vulns      = osv_data.get("vulns", [])
+            # Phase 0 response-formatter fixes (query-time layer — belt-and-suspenders)
+            vulns      = _fmt_dedup_pysec_ghsa(vulns)
+            vulns      = _fmt_fix_severity_levels(vulns)
+            osv_data["vulns"] = vulns   # keep osv_data consistent for result_data
+            raw_bytes  = json.dumps(osv_data).encode()
+            phash_val  = _compute_hash(raw_bytes)
+            data_as_of = datetime.now(timezone.utc).isoformat()
+            markdown   = _build_vuln_markdown(vulns, pkg_clean, ver_clean, eco_clean)
 
-        result_data = {
-            "status":           "ok",
-            "tool_id":          "T10",
-            "source_url":       "https://api.osv.dev/v1/query",
-            "fetch_timestamp":  data_as_of,
-            "cache_hit":        False,
-            "staleness_notice": None,
-            "sha256_hash":      phash_val,
-            "data":             osv_data,
-            "markdown_output":  markdown,
-            "disclaimer":       T10_DISCLAIMER,
-            "data_as_of":       data_as_of,
-            "ingest_healthy":   True,
-        }
+            result_data = {
+                "status":           "ok",
+                "tool_id":          "T10",
+                "source_url":       "https://api.osv.dev/v1/query",
+                "fetch_timestamp":  data_as_of,
+                "cache_hit":        False,
+                "staleness_notice": None,
+                "sha256_hash":      phash_val,
+                "data":             osv_data,
+                "markdown_output":  markdown,
+                "disclaimer":       T10_DISCLAIMER,
+                "data_as_of":       data_as_of,
+                "ingest_healthy":   True,
+            }
 
-        set_cached("T10", phash, result_data, _T10_TTL)
-        set_cached("T10", phash + "_archive", result_data, _T10_TTL * 24)
-        ctx.set_cache_hit(False)
+            set_cached("T10", phash, result_data, _T10_TTL)
+            set_cached("T10", phash + "_archive", result_data, _T10_TTL * 24)
+            ctx.set_cache_hit(False)
 
-        log.info("t10.fetch_package_vulnerabilities ok pkg=%s ver=%s eco=%s vulns=%d",
-                 pkg_clean, ver_clean, eco_clean, len(vulns))
+            log.info("t10.fetch_package_vulnerabilities ok pkg=%s ver=%s eco=%s vulns=%d",
+                     pkg_clean, ver_clean, eco_clean, len(vulns))
 
-        return {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _out = {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T10",
+            tool_name="fetch_package_vulnerabilities",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+            ecosystem=ecosystem,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -239,144 +267,169 @@ async def fetch_dependency_graph(
     """Use this to get the full dependency tree for a software package.
     Provide package name, version, and ecosystem.
     Returns all direct and transitive dependencies."""
-    pkg_clean = package.strip()
-    ver_clean = version.strip()
-    eco_clean = ecosystem.strip()
-    params    = {"package": pkg_clean, "version": ver_clean, "ecosystem": eco_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        pkg_clean = package.strip()
+        ver_clean = version.strip()
+        eco_clean = ecosystem.strip()
+        params    = {"package": pkg_clean, "version": ver_clean, "ecosystem": eco_clean}
 
-    async with AuditContext("T10", params, "1.0") as ctx:
-        phash = make_params_hash(params)
+        async with AuditContext("T10", params, "1.0") as ctx:
+            phash = make_params_hash(params)
 
-        # ── Cache check ───────────────────────────────────────────────────────
-        cached = get_cached("T10", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
-            }
+            # ── Cache check ───────────────────────────────────────────────────────
+            cached = get_cached("T10", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        # ── Circuit breaker ───────────────────────────────────────────────────
-        if is_tripped("deps_dev"):
-            archive = get_cached("T10", phash + "_archive")
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return {
-                "status":           "error",
-                "tool_id":          "T10",
-                "data":             archive or {},
-                "markdown_output":  "Dependency graph temporarily unavailable.",
-                "staleness_notice": get_staleness_notice(
-                    "deps_dev", (archive or {}).get("data_as_of", "unknown"),
-                ),
-                "disclaimer":  T10_DISCLAIMER,
-                "cache_hit":   False,
-                "sha256_hash": "",
-                **standard_response_fields(ctx.query_hash, "", False),
-            }
+            # ── Circuit breaker ───────────────────────────────────────────────────
+            if is_tripped("deps_dev"):
+                archive = get_cached("T10", phash + "_archive")
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
+                return {
+                    "status":           "error",
+                    "tool_id":          "T10",
+                    "data":             archive or {},
+                    "markdown_output":  "Dependency graph temporarily unavailable.",
+                    "staleness_notice": get_staleness_notice(
+                        "deps_dev", (archive or {}).get("data_as_of", "unknown"),
+                    ),
+                    "disclaimer":  T10_DISCLAIMER,
+                    "cache_hit":   False,
+                    "sha256_hash": "",
+                    **standard_response_fields(ctx.query_hash, "", False),
+                }
 
-        # ── Live fetch — HARD TIMEOUT 8000ms ──────────────────────────────────
-        eco_lower   = eco_clean.lower()
-        deps_system = _DEPS_SYSTEM.get(eco_lower, eco_lower.upper())
+            # ── Live fetch — HARD TIMEOUT 8000ms ──────────────────────────────────
+            eco_lower   = eco_clean.lower()
+            deps_system = _DEPS_SYSTEM.get(eco_lower, eco_lower.upper())
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
-            ) as client:
-                dep_data = await asyncio.wait_for(
-                    _fetch_dep_graph_live(client, deps_system, pkg_clean, ver_clean),
-                    timeout=_DEP_GRAPH_TIMEOUT,
-                )
+            try:
+                async with httpx.AsyncClient(
+                    timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
+                ) as client:
+                    dep_data = await asyncio.wait_for(
+                        _fetch_dep_graph_live(client, deps_system, pkg_clean, ver_clean),
+                        timeout=_DEP_GRAPH_TIMEOUT,
+                    )
 
-        except asyncio.TimeoutError:
-            record_failure_sync("deps_dev")
-            log.warning("t10.fetch_dependency_graph timeout pkg=%s ver=%s eco=%s",
-                        pkg_clean, ver_clean, eco_clean)
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_TIMEOUT,
-                message=(
-                    "Dependency graph fetch timed out. "
-                    "Try again or reduce package complexity."
-                ),
-                query_hash=ctx.query_hash,
-                retry_after=30,
-                ingest_healthy=False,
-            )
-        except httpx.TimeoutException:
-            record_failure_sync("deps_dev")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_TIMEOUT,
-                message="Dependency graph fetch timed out.",
-                query_hash=ctx.query_hash,
-                retry_after=30,
-                ingest_healthy=False,
-            )
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
+            except asyncio.TimeoutError:
+                record_failure_sync("deps_dev")
+                log.warning("t10.fetch_dependency_graph timeout pkg=%s ver=%s eco=%s",
+                            pkg_clean, ver_clean, eco_clean)
                 return error_response(
-                    error_code=ErrorCode.NOT_FOUND,
-                    message=f"Package '{pkg_clean}@{ver_clean}' not found in {eco_clean}.",
+                    error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                    message=(
+                        "Dependency graph fetch timed out. "
+                        "Try again or reduce package complexity."
+                    ),
+                    query_hash=ctx.query_hash,
+                    retry_after=30,
+                    ingest_healthy=False,
+                )
+            except httpx.TimeoutException:
+                record_failure_sync("deps_dev")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                    message="Dependency graph fetch timed out.",
+                    query_hash=ctx.query_hash,
+                    retry_after=30,
+                    ingest_healthy=False,
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    return error_response(
+                        error_code=ErrorCode.NOT_FOUND,
+                        message=f"Package '{pkg_clean}@{ver_clean}' not found in {eco_clean}.",
+                        query_hash=ctx.query_hash,
+                        retry_after=0,
+                        ingest_healthy=True,
+                    )
+                record_failure_sync("deps_dev")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
+                    message="deps.dev temporarily unavailable.",
+                    query_hash=ctx.query_hash,
+                    retry_after=60,
+                    ingest_healthy=False,
+                )
+            except Exception:
+                record_failure_sync("deps_dev")
+                log.exception("t10.fetch_dependency_graph error pkg=%s", pkg_clean)
+                return error_response(
+                    error_code=ErrorCode.INTERNAL_ERROR,
+                    message="An internal error occurred. Please try again.",
                     query_hash=ctx.query_hash,
                     retry_after=0,
-                    ingest_healthy=True,
+                    ingest_healthy=False,
                 )
-            record_failure_sync("deps_dev")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
-                message="deps.dev temporarily unavailable.",
-                query_hash=ctx.query_hash,
-                retry_after=60,
-                ingest_healthy=False,
-            )
-        except Exception:
-            record_failure_sync("deps_dev")
-            log.exception("t10.fetch_dependency_graph error pkg=%s", pkg_clean)
-            return error_response(
-                error_code=ErrorCode.INTERNAL_ERROR,
-                message="An internal error occurred. Please try again.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=False,
-            )
 
-        record_success_sync("deps_dev")
+            record_success_sync("deps_dev")
 
-        raw_bytes  = json.dumps(dep_data).encode()
-        phash_val  = _compute_hash(raw_bytes)
-        data_as_of = datetime.now(timezone.utc).isoformat()
-        markdown   = _build_dep_graph_markdown(dep_data, pkg_clean, ver_clean, eco_clean)
+            raw_bytes  = json.dumps(dep_data).encode()
+            phash_val  = _compute_hash(raw_bytes)
+            data_as_of = datetime.now(timezone.utc).isoformat()
+            markdown   = _build_dep_graph_markdown(dep_data, pkg_clean, ver_clean, eco_clean)
 
-        result_data = {
-            "status":           "ok",
-            "tool_id":          "T10",
-            "source_url":       (
-                f"{_DEPS_DEV_URL}/systems/{deps_system}/packages/"
-                f"{quote(pkg_clean, safe='')}/versions/"
-                f"{quote(ver_clean, safe='')}/dependencies"
-            ),
-            "fetch_timestamp":  data_as_of,
-            "cache_hit":        False,
-            "staleness_notice": None,
-            "sha256_hash":      phash_val,
-            "data":             dep_data,
-            "markdown_output":  markdown,
-            "disclaimer":       T10_DISCLAIMER,
-            "data_as_of":       data_as_of,
-            "ingest_healthy":   True,
-        }
+            result_data = {
+                "status":           "ok",
+                "tool_id":          "T10",
+                "source_url":       (
+                    f"{_DEPS_DEV_URL}/systems/{deps_system}/packages/"
+                    f"{quote(pkg_clean, safe='')}/versions/"
+                    f"{quote(ver_clean, safe='')}/dependencies"
+                ),
+                "fetch_timestamp":  data_as_of,
+                "cache_hit":        False,
+                "staleness_notice": None,
+                "sha256_hash":      phash_val,
+                "data":             dep_data,
+                "markdown_output":  markdown,
+                "disclaimer":       T10_DISCLAIMER,
+                "data_as_of":       data_as_of,
+                "ingest_healthy":   True,
+            }
 
-        set_cached("T10", phash, result_data, _T10_TTL)
-        set_cached("T10", phash + "_archive", result_data, _T10_TTL * 24)
-        ctx.set_cache_hit(False)
+            set_cached("T10", phash, result_data, _T10_TTL)
+            set_cached("T10", phash + "_archive", result_data, _T10_TTL * 24)
+            ctx.set_cache_hit(False)
 
-        log.info("t10.fetch_dependency_graph ok pkg=%s ver=%s eco=%s deps=%d",
-                 pkg_clean, ver_clean, eco_clean, dep_data.get("total_deps", 0))
+            log.info("t10.fetch_dependency_graph ok pkg=%s ver=%s eco=%s deps=%d",
+                     pkg_clean, ver_clean, eco_clean, dep_data.get("total_deps", 0))
 
-        return {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _out = {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T10",
+            tool_name="fetch_dependency_graph",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -390,142 +443,167 @@ async def fetch_cve_detail(cve_id: str) -> dict:
     """Use this to get full detail on a specific CVE by its identifier.
     Provide the CVE ID such as CVE-2021-44228.
     Returns severity, CVSS score, affected versions, and fix information."""
-    cve_clean = cve_id.strip().upper()
-    params    = {"cve_id": cve_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        cve_clean = cve_id.strip().upper()
+        params    = {"cve_id": cve_clean}
 
-    async with AuditContext("T10", params, "1.0") as ctx:
-        if not _CVE_RE.match(cve_clean):
-            return error_response(
-                error_code=ErrorCode.VALIDATION_ERROR,
-                message="Invalid CVE ID format. Expected CVE-YYYY-NNNNN.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=True,
-            )
-
-        phash = make_params_hash(params)
-
-        # ── Cache check ───────────────────────────────────────────────────────
-        cached = get_cached("T10", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
-            }
-
-        # ── Circuit breaker ───────────────────────────────────────────────────
-        if is_tripped("nist_nvd"):
-            archive = get_cached("T10", phash + "_archive")
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return {
-                "status":           "error",
-                "tool_id":          "T10",
-                "data":             archive or {},
-                "markdown_output":  f"NVD data for {cve_clean} temporarily unavailable.",
-                "staleness_notice": get_staleness_notice(
-                    "nist_nvd", (archive or {}).get("data_as_of", "unknown"),
-                ),
-                "disclaimer":  T10_DISCLAIMER,
-                "cache_hit":   False,
-                "sha256_hash": "",
-                **standard_response_fields(ctx.query_hash, "", False),
-            }
-
-        # ── Live fetch — NIST NVD ─────────────────────────────────────────────
-        nvd_headers = {**_HTTP_HEADERS}
-        if _NVD_API_KEY:
-            nvd_headers["apiKey"] = _NVD_API_KEY
-
-        try:
-            async with httpx.AsyncClient(
-                timeout=_HTTP_TIMEOUT, headers=nvd_headers, follow_redirects=True,
-            ) as client:
-                resp = await client.get(_NVD_URL, params={"cveId": cve_clean})
-                if resp.status_code == 404:
-                    return error_response(
-                        error_code=ErrorCode.NOT_FOUND,
-                        message=f"{cve_clean} not found in NIST NVD.",
-                        query_hash=ctx.query_hash,
-                        retry_after=0,
-                        ingest_healthy=True,
-                    )
-                resp.raise_for_status()
-                nvd_raw = resp.json()
-
-        except httpx.TimeoutException:
-            record_failure_sync("nist_nvd")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_TIMEOUT,
-                message="NIST NVD timed out. Try again shortly.",
-                query_hash=ctx.query_hash,
-                retry_after=30,
-                ingest_healthy=False,
-            )
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 429:
+        async with AuditContext("T10", params, "1.0") as ctx:
+            if not _CVE_RE.match(cve_clean):
                 return error_response(
-                    error_code=ErrorCode.UPSTREAM_RATE_LIMITED,
-                    message="NIST NVD rate limit reached. Try again in 30 seconds.",
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    message="Invalid CVE ID format. Expected CVE-YYYY-NNNNN.",
                     query_hash=ctx.query_hash,
-                    retry_after=30,
+                    retry_after=0,
                     ingest_healthy=True,
                 )
-            record_failure_sync("nist_nvd")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
-                message="NIST NVD temporarily unavailable.",
-                query_hash=ctx.query_hash,
-                retry_after=60,
-                ingest_healthy=False,
-            )
-        except Exception:
-            record_failure_sync("nist_nvd")
-            log.exception("t10.fetch_cve_detail error cve=%s", cve_clean)
-            return error_response(
-                error_code=ErrorCode.INTERNAL_ERROR,
-                message="An internal error occurred. Please try again.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=False,
-            )
 
-        record_success_sync("nist_nvd")
+            phash = make_params_hash(params)
 
-        cve_data   = _parse_nvd_cve(nvd_raw, cve_clean)
-        raw_bytes  = json.dumps(cve_data).encode()
-        phash_val  = _compute_hash(raw_bytes)
-        data_as_of = datetime.now(timezone.utc).isoformat()
-        markdown   = _build_cve_markdown(cve_data)
+            # ── Cache check ───────────────────────────────────────────────────────
+            cached = get_cached("T10", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        result_data = {
-            "status":           "ok",
-            "tool_id":          "T10",
-            "source_url":       f"https://nvd.nist.gov/vuln/detail/{cve_clean}",
-            "fetch_timestamp":  data_as_of,
-            "cache_hit":        False,
-            "staleness_notice": None,
-            "sha256_hash":      phash_val,
-            "data":             cve_data,
-            "markdown_output":  markdown,
-            "disclaimer":       T10_DISCLAIMER,
-            "data_as_of":       data_as_of,
-            "ingest_healthy":   True,
-        }
+            # ── Circuit breaker ───────────────────────────────────────────────────
+            if is_tripped("nist_nvd"):
+                archive = get_cached("T10", phash + "_archive")
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
+                return {
+                    "status":           "error",
+                    "tool_id":          "T10",
+                    "data":             archive or {},
+                    "markdown_output":  f"NVD data for {cve_clean} temporarily unavailable.",
+                    "staleness_notice": get_staleness_notice(
+                        "nist_nvd", (archive or {}).get("data_as_of", "unknown"),
+                    ),
+                    "disclaimer":  T10_DISCLAIMER,
+                    "cache_hit":   False,
+                    "sha256_hash": "",
+                    **standard_response_fields(ctx.query_hash, "", False),
+                }
 
-        set_cached("T10", phash, result_data, _T10_TTL)
-        set_cached("T10", phash + "_archive", result_data, _T10_TTL * 24)
-        ctx.set_cache_hit(False)
+            # ── Live fetch — NIST NVD ─────────────────────────────────────────────
+            nvd_headers = {**_HTTP_HEADERS}
+            if _NVD_API_KEY:
+                nvd_headers["apiKey"] = _NVD_API_KEY
 
-        log.info("t10.fetch_cve_detail ok cve=%s score=%s",
-                 cve_clean, cve_data.get("cvss_base_score", ""))
+            try:
+                async with httpx.AsyncClient(
+                    timeout=_HTTP_TIMEOUT, headers=nvd_headers, follow_redirects=True,
+                ) as client:
+                    resp = await client.get(_NVD_URL, params={"cveId": cve_clean})
+                    if resp.status_code == 404:
+                        return error_response(
+                            error_code=ErrorCode.NOT_FOUND,
+                            message=f"{cve_clean} not found in NIST NVD.",
+                            query_hash=ctx.query_hash,
+                            retry_after=0,
+                            ingest_healthy=True,
+                        )
+                    resp.raise_for_status()
+                    nvd_raw = resp.json()
 
-        return {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            except httpx.TimeoutException:
+                record_failure_sync("nist_nvd")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                    message="NIST NVD timed out. Try again shortly.",
+                    query_hash=ctx.query_hash,
+                    retry_after=30,
+                    ingest_healthy=False,
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    return error_response(
+                        error_code=ErrorCode.UPSTREAM_RATE_LIMITED,
+                        message="NIST NVD rate limit reached. Try again in 30 seconds.",
+                        query_hash=ctx.query_hash,
+                        retry_after=30,
+                        ingest_healthy=True,
+                    )
+                record_failure_sync("nist_nvd")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
+                    message="NIST NVD temporarily unavailable.",
+                    query_hash=ctx.query_hash,
+                    retry_after=60,
+                    ingest_healthy=False,
+                )
+            except Exception:
+                record_failure_sync("nist_nvd")
+                log.exception("t10.fetch_cve_detail error cve=%s", cve_clean)
+                return error_response(
+                    error_code=ErrorCode.INTERNAL_ERROR,
+                    message="An internal error occurred. Please try again.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=False,
+                )
+
+            record_success_sync("nist_nvd")
+
+            cve_data   = _parse_nvd_cve(nvd_raw, cve_clean)
+            raw_bytes  = json.dumps(cve_data).encode()
+            phash_val  = _compute_hash(raw_bytes)
+            data_as_of = datetime.now(timezone.utc).isoformat()
+            markdown   = _build_cve_markdown(cve_data)
+
+            result_data = {
+                "status":           "ok",
+                "tool_id":          "T10",
+                "source_url":       f"https://nvd.nist.gov/vuln/detail/{cve_clean}",
+                "fetch_timestamp":  data_as_of,
+                "cache_hit":        False,
+                "staleness_notice": None,
+                "sha256_hash":      phash_val,
+                "data":             cve_data,
+                "markdown_output":  markdown,
+                "disclaimer":       T10_DISCLAIMER,
+                "data_as_of":       data_as_of,
+                "ingest_healthy":   True,
+            }
+
+            set_cached("T10", phash, result_data, _T10_TTL)
+            set_cached("T10", phash + "_archive", result_data, _T10_TTL * 24)
+            ctx.set_cache_hit(False)
+
+            log.info("t10.fetch_cve_detail ok cve=%s score=%s",
+                     cve_clean, cve_data.get("cvss_base_score", ""))
+
+            _out = {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T10",
+            tool_name="fetch_cve_detail",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -539,114 +617,139 @@ async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
     """Use this to audit a software bill of materials for known vulnerabilities.
     Provide a CycloneDX or SPDX SBOM as a JSON string.
     Returns all CVEs found across every listed component."""
-    import hashlib
-    params = {"sbom_hash": hashlib.sha256(sbom_json.encode()).hexdigest()[:32]}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        import hashlib
+        params = {"sbom_hash": hashlib.sha256(sbom_json.encode()).hexdigest()[:32]}
 
-    async with AuditContext("T10", params, "1.0") as ctx:
-        phash = make_params_hash(params)
+        async with AuditContext("T10", params, "1.0") as ctx:
+            phash = make_params_hash(params)
 
-        cached = get_cached("T10", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
+            cached = get_cached("T10", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
+
+            try:
+                sbom_data = json.loads(sbom_json)
+            except json.JSONDecodeError:
+                return error_response(
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    message="Invalid JSON in sbom_json. Provide valid CycloneDX or SPDX JSON.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=True,
+                )
+
+            components = _extract_sbom_components(sbom_data)
+            if not components:
+                return error_response(
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    message=(
+                        "No parseable components found in SBOM. "
+                        "Ensure CycloneDX components[] or SPDX packages[] with PURLs are present."
+                    ),
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=True,
+                )
+
+            if is_tripped("osv_dev"):
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
+                return error_response(
+                    error_code=ErrorCode.CIRCUIT_OPEN,
+                    message="OSV.dev currently unavailable. Try again later.",
+                    query_hash=ctx.query_hash,
+                    retry_after=300,
+                    ingest_healthy=False,
+                )
+
+            try:
+                async with httpx.AsyncClient(
+                    timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
+                ) as client:
+                    batch_results = await _batch_osv_query(client, components)
+            except httpx.TimeoutException:
+                record_failure_sync("osv_dev")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                    message="OSV.dev batch query timed out.",
+                    query_hash=ctx.query_hash,
+                    retry_after=30,
+                    ingest_healthy=False,
+                )
+            except Exception:
+                record_failure_sync("osv_dev")
+                log.exception("t10.audit_sbom_vulnerabilities error")
+                return error_response(
+                    error_code=ErrorCode.INTERNAL_ERROR,
+                    message="An internal error occurred. Please try again.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=False,
+                )
+
+            record_success_sync("osv_dev")
+
+            audit_data = _build_audit_data(components, batch_results)
+            raw_bytes  = json.dumps(audit_data).encode()
+            phash_val  = _compute_hash(raw_bytes)
+            data_as_of = datetime.now(timezone.utc).isoformat()
+            markdown   = _build_sbom_audit_markdown(audit_data)
+
+            result_data = {
+                "status":           "ok",
+                "tool_id":          "T10",
+                "source_url":       "https://api.osv.dev/v1/querybatch",
+                "fetch_timestamp":  data_as_of,
+                "cache_hit":        False,
+                "staleness_notice": None,
+                "sha256_hash":      phash_val,
+                "data":             audit_data,
+                "markdown_output":  markdown,
+                "disclaimer":       T10_DISCLAIMER,
+                "data_as_of":       data_as_of,
+                "ingest_healthy":   True,
             }
 
-        try:
-            sbom_data = json.loads(sbom_json)
-        except json.JSONDecodeError:
-            return error_response(
-                error_code=ErrorCode.VALIDATION_ERROR,
-                message="Invalid JSON in sbom_json. Provide valid CycloneDX or SPDX JSON.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=True,
-            )
+            set_cached("T10", phash, result_data, _T10_TTL)
+            ctx.set_cache_hit(False)
 
-        components = _extract_sbom_components(sbom_data)
-        if not components:
-            return error_response(
-                error_code=ErrorCode.VALIDATION_ERROR,
-                message=(
-                    "No parseable components found in SBOM. "
-                    "Ensure CycloneDX components[] or SPDX packages[] with PURLs are present."
-                ),
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=True,
-            )
+            log.info("t10.audit_sbom_vulnerabilities ok components=%d vuln_count=%d",
+                     len(components), audit_data.get("total_vulns", 0))
 
-        if is_tripped("osv_dev"):
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return error_response(
-                error_code=ErrorCode.CIRCUIT_OPEN,
-                message="OSV.dev currently unavailable. Try again later.",
-                query_hash=ctx.query_hash,
-                retry_after=300,
-                ingest_healthy=False,
-            )
-
-        try:
-            async with httpx.AsyncClient(
-                timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
-            ) as client:
-                batch_results = await _batch_osv_query(client, components)
-        except httpx.TimeoutException:
-            record_failure_sync("osv_dev")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_TIMEOUT,
-                message="OSV.dev batch query timed out.",
-                query_hash=ctx.query_hash,
-                retry_after=30,
-                ingest_healthy=False,
-            )
-        except Exception:
-            record_failure_sync("osv_dev")
-            log.exception("t10.audit_sbom_vulnerabilities error")
-            return error_response(
-                error_code=ErrorCode.INTERNAL_ERROR,
-                message="An internal error occurred. Please try again.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=False,
-            )
-
-        record_success_sync("osv_dev")
-
-        audit_data = _build_audit_data(components, batch_results)
-        raw_bytes  = json.dumps(audit_data).encode()
-        phash_val  = _compute_hash(raw_bytes)
-        data_as_of = datetime.now(timezone.utc).isoformat()
-        markdown   = _build_sbom_audit_markdown(audit_data)
-
-        result_data = {
-            "status":           "ok",
-            "tool_id":          "T10",
-            "source_url":       "https://api.osv.dev/v1/querybatch",
-            "fetch_timestamp":  data_as_of,
-            "cache_hit":        False,
-            "staleness_notice": None,
-            "sha256_hash":      phash_val,
-            "data":             audit_data,
-            "markdown_output":  markdown,
-            "disclaimer":       T10_DISCLAIMER,
-            "data_as_of":       data_as_of,
-            "ingest_healthy":   True,
-        }
-
-        set_cached("T10", phash, result_data, _T10_TTL)
-        ctx.set_cache_hit(False)
-
-        log.info("t10.audit_sbom_vulnerabilities ok components=%d vuln_count=%d",
-                 len(components), audit_data.get("total_vulns", 0))
-
-        return {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _out = {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T10",
+            tool_name="audit_sbom_vulnerabilities",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -664,114 +767,139 @@ async def fetch_package_licence(
     """Use this to check the licence for an open source package version.
     Provide package name, version, and ecosystem.
     Returns the declared licence identifier such as MIT or Apache-2.0."""
-    pkg_clean = package.strip()
-    ver_clean = version.strip()
-    eco_clean = ecosystem.strip()
-    params    = {"package": pkg_clean, "version": ver_clean, "ecosystem": eco_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        pkg_clean = package.strip()
+        ver_clean = version.strip()
+        eco_clean = ecosystem.strip()
+        params    = {"package": pkg_clean, "version": ver_clean, "ecosystem": eco_clean}
 
-    async with AuditContext("T10", params, "1.0") as ctx:
-        phash = make_params_hash(params)
+        async with AuditContext("T10", params, "1.0") as ctx:
+            phash = make_params_hash(params)
 
-        cached = get_cached("T10", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
-            }
+            cached = get_cached("T10", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        if is_tripped("deps_dev"):
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return error_response(
-                error_code=ErrorCode.CIRCUIT_OPEN,
-                message="deps.dev currently unavailable. Try again later.",
-                query_hash=ctx.query_hash,
-                retry_after=300,
-                ingest_healthy=False,
-            )
-
-        eco_lower   = eco_clean.lower()
-        deps_system = _DEPS_SYSTEM.get(eco_lower, eco_lower.upper())
-
-        try:
-            async with httpx.AsyncClient(
-                timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
-            ) as client:
-                lic_data = await _fetch_licence_live(client, deps_system, pkg_clean, ver_clean)
-        except httpx.TimeoutException:
-            record_failure_sync("deps_dev")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_TIMEOUT,
-                message="deps.dev timed out. Try again shortly.",
-                query_hash=ctx.query_hash,
-                retry_after=30,
-                ingest_healthy=False,
-            )
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 404:
+            if is_tripped("deps_dev"):
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
                 return error_response(
-                    error_code=ErrorCode.NOT_FOUND,
-                    message=f"Package '{pkg_clean}@{ver_clean}' not found in {eco_clean}.",
+                    error_code=ErrorCode.CIRCUIT_OPEN,
+                    message="deps.dev currently unavailable. Try again later.",
+                    query_hash=ctx.query_hash,
+                    retry_after=300,
+                    ingest_healthy=False,
+                )
+
+            eco_lower   = eco_clean.lower()
+            deps_system = _DEPS_SYSTEM.get(eco_lower, eco_lower.upper())
+
+            try:
+                async with httpx.AsyncClient(
+                    timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
+                ) as client:
+                    lic_data = await _fetch_licence_live(client, deps_system, pkg_clean, ver_clean)
+            except httpx.TimeoutException:
+                record_failure_sync("deps_dev")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                    message="deps.dev timed out. Try again shortly.",
+                    query_hash=ctx.query_hash,
+                    retry_after=30,
+                    ingest_healthy=False,
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    return error_response(
+                        error_code=ErrorCode.NOT_FOUND,
+                        message=f"Package '{pkg_clean}@{ver_clean}' not found in {eco_clean}.",
+                        query_hash=ctx.query_hash,
+                        retry_after=0,
+                        ingest_healthy=True,
+                    )
+                record_failure_sync("deps_dev")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
+                    message="deps.dev temporarily unavailable.",
+                    query_hash=ctx.query_hash,
+                    retry_after=60,
+                    ingest_healthy=False,
+                )
+            except Exception:
+                record_failure_sync("deps_dev")
+                log.exception("t10.fetch_package_licence error pkg=%s", pkg_clean)
+                return error_response(
+                    error_code=ErrorCode.INTERNAL_ERROR,
+                    message="An internal error occurred. Please try again.",
                     query_hash=ctx.query_hash,
                     retry_after=0,
-                    ingest_healthy=True,
+                    ingest_healthy=False,
                 )
-            record_failure_sync("deps_dev")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
-                message="deps.dev temporarily unavailable.",
-                query_hash=ctx.query_hash,
-                retry_after=60,
-                ingest_healthy=False,
-            )
-        except Exception:
-            record_failure_sync("deps_dev")
-            log.exception("t10.fetch_package_licence error pkg=%s", pkg_clean)
-            return error_response(
-                error_code=ErrorCode.INTERNAL_ERROR,
-                message="An internal error occurred. Please try again.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=False,
-            )
 
-        record_success_sync("deps_dev")
+            record_success_sync("deps_dev")
 
-        raw_bytes  = json.dumps(lic_data).encode()
-        phash_val  = _compute_hash(raw_bytes)
-        data_as_of = datetime.now(timezone.utc).isoformat()
-        markdown   = _build_licence_markdown(lic_data)
+            raw_bytes  = json.dumps(lic_data).encode()
+            phash_val  = _compute_hash(raw_bytes)
+            data_as_of = datetime.now(timezone.utc).isoformat()
+            markdown   = _build_licence_markdown(lic_data)
 
-        result_data = {
-            "status":           "ok",
-            "tool_id":          "T10",
-            "source_url":       (
-                f"{_DEPS_DEV_URL}/systems/{deps_system}/packages/"
-                f"{quote(pkg_clean, safe='')}/versions/{quote(ver_clean, safe='')}"
-            ),
-            "fetch_timestamp":  data_as_of,
-            "cache_hit":        False,
-            "staleness_notice": None,
-            "sha256_hash":      phash_val,
-            "data":             lic_data,
-            "markdown_output":  markdown,
-            "disclaimer":       T10_DISCLAIMER,
-            "data_as_of":       data_as_of,
-            "ingest_healthy":   True,
-        }
+            result_data = {
+                "status":           "ok",
+                "tool_id":          "T10",
+                "source_url":       (
+                    f"{_DEPS_DEV_URL}/systems/{deps_system}/packages/"
+                    f"{quote(pkg_clean, safe='')}/versions/{quote(ver_clean, safe='')}"
+                ),
+                "fetch_timestamp":  data_as_of,
+                "cache_hit":        False,
+                "staleness_notice": None,
+                "sha256_hash":      phash_val,
+                "data":             lic_data,
+                "markdown_output":  markdown,
+                "disclaimer":       T10_DISCLAIMER,
+                "data_as_of":       data_as_of,
+                "ingest_healthy":   True,
+            }
 
-        set_cached("T10", phash, result_data, _T10_TTL)
-        ctx.set_cache_hit(False)
+            set_cached("T10", phash, result_data, _T10_TTL)
+            ctx.set_cache_hit(False)
 
-        log.info("t10.fetch_package_licence ok pkg=%s ver=%s eco=%s licences=%s",
-                 pkg_clean, ver_clean, eco_clean, lic_data.get("licences", []))
+            log.info("t10.fetch_package_licence ok pkg=%s ver=%s eco=%s licences=%s",
+                     pkg_clean, ver_clean, eco_clean, lic_data.get("licences", []))
 
-        return {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _out = {**result_data, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T10",
+            tool_name="fetch_package_licence",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

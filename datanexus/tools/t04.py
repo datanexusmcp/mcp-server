@@ -26,15 +26,19 @@ UK GDPR data controller statement (required in all UK charity responses):
   Open Government Licence v3.0."
 """
 
+import asyncio
 import csv
 import io
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 from fastmcp import FastMCP
+
+from datanexus.analytics import track_tool_call, track_tool_error
 
 from datanexus.core.audit import (
     AuditContext,
@@ -114,98 +118,123 @@ async def fetch_nonprofit_by_ein(ein: str) -> dict:
     """Use this to research a US charity or nonprofit by EIN number.
     Provide the EIN with or without dash. Returns financial history,
     revenue, expenses, assets, and IRS registration status."""
-    # Normalise EIN — strip dashes, leading zeros
-    ein_clean = ein.replace("-", "").strip()
-    params = {"ein": ein_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        # Normalise EIN — strip dashes, leading zeros
+        ein_clean = ein.replace("-", "").strip()
+        params = {"ein": ein_clean}
 
-    async with AuditContext("T04", params, "1.0") as ctx:
-        phash = make_params_hash(params)
+        async with AuditContext("T04", params, "1.0") as ctx:
+            phash = make_params_hash(params)
 
-        # ── 1. Cache check ────────────────────────────────────────────────────
-        cached = get_cached("T04", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            log.info("t04.fetch_nonprofit_by_ein cache_hit ein=%s", ein_clean)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
-            }
+            # ── 1. Cache check ────────────────────────────────────────────────────
+            cached = get_cached("T04", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                log.info("t04.fetch_nonprofit_by_ein cache_hit ein=%s", ein_clean)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        # ── 2. Circuit breaker check ──────────────────────────────────────────
-        bmf_down  = is_tripped("irs_bmf")
-        teos_down = is_tripped("irs_teos")
+            # ── 2. Circuit breaker check ──────────────────────────────────────────
+            bmf_down  = is_tripped("irs_bmf")
+            teos_down = is_tripped("irs_teos")
 
-        if bmf_down and teos_down:
-            archive = get_cached("T04", phash + "_archive")
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return {
+            if bmf_down and teos_down:
+                archive = get_cached("T04", phash + "_archive")
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
+                return {
+                    "tool_id":         "T04",
+                    "data":            archive or {},
+                    "markdown_output": _archive_markdown(archive, ein_clean),
+                    "staleness_notice": get_staleness_notice(
+                        "irs_bmf",
+                        (archive or {}).get("data_as_of", "unknown"),
+                    ),
+                    "disclaimer": T04_DISCLAIMER,
+                    "cache_hit":  False,
+                    "sha256_hash": "",
+                    **standard_response_fields(ctx.query_hash, "", False),
+                }
+
+            # ── 3. Live lookup — Redis BMF index first ────────────────────────────
+            result = await _lookup_ein(ein_clean)
+            ingest_healthy = True
+
+            if not result:
+                # BMF worker hasn't run yet or EIN not found
+                ingest_healthy = False
+                return error_response(
+                    error_code=ErrorCode.NOT_FOUND,
+                    message=f"EIN {ein_clean} not found in IRS EO BMF. "
+                            "Verify the EIN is correct and the organisation is active.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=False,
+                )
+
+            # ── 4. Build payload ──────────────────────────────────────────────────
+            raw_bytes      = json.dumps(result).encode()
+            payload_hash   = compute_payload_hash(raw_bytes)
+            markdown       = _build_nonprofit_markdown(result, ein_clean)
+            data_as_of     = datetime.now(timezone.utc).isoformat()
+
+            payload = {
                 "tool_id":         "T04",
-                "data":            archive or {},
-                "markdown_output": _archive_markdown(archive, ein_clean),
-                "staleness_notice": get_staleness_notice(
-                    "irs_bmf",
-                    (archive or {}).get("data_as_of", "unknown"),
-                ),
-                "disclaimer": T04_DISCLAIMER,
-                "cache_hit":  False,
-                "sha256_hash": "",
-                **standard_response_fields(ctx.query_hash, "", False),
+                "source_url":      "https://www.irs.gov/pub/irs-soi/eo1.csv",
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            result,
+                "markdown_output": markdown,
+                "disclaimer":      T04_DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  ingest_healthy,
             }
 
-        # ── 3. Live lookup — Redis BMF index first ────────────────────────────
-        result = await _lookup_ein(ein_clean)
-        ingest_healthy = True
+            # ── 5. Store in cache ─────────────────────────────────────────────────
+            set_cached("T04", phash, payload, IRS_BMF_TTL)
+            set_cached("T04", phash + "_archive", payload, IRS_BMF_TTL * 4)
+            ctx.set_cache_hit(False)
+            record_success_sync("irs_bmf")
 
-        if not result:
-            # BMF worker hasn't run yet or EIN not found
-            ingest_healthy = False
-            return error_response(
-                error_code=ErrorCode.NOT_FOUND,
-                message=f"EIN {ein_clean} not found in IRS EO BMF. "
-                        "Verify the EIN is correct and the organisation is active.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=False,
-            )
+            log.info("t04.fetch_nonprofit_by_ein ok ein=%s name=%s",
+                     ein_clean, result.get("name", ""))
 
-        # ── 4. Build payload ──────────────────────────────────────────────────
-        raw_bytes      = json.dumps(result).encode()
-        payload_hash   = compute_payload_hash(raw_bytes)
-        markdown       = _build_nonprofit_markdown(result, ein_clean)
-        data_as_of     = datetime.now(timezone.utc).isoformat()
-
-        payload = {
-            "tool_id":         "T04",
-            "source_url":      "https://www.irs.gov/pub/irs-soi/eo1.csv",
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            result,
-            "markdown_output": markdown,
-            "disclaimer":      T04_DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  ingest_healthy,
-        }
-
-        # ── 5. Store in cache ─────────────────────────────────────────────────
-        set_cached("T04", phash, payload, IRS_BMF_TTL)
-        set_cached("T04", phash + "_archive", payload, IRS_BMF_TTL * 4)
-        ctx.set_cache_hit(False)
-        record_success_sync("irs_bmf")
-
-        log.info("t04.fetch_nonprofit_by_ein ok ein=%s name=%s",
-                 ein_clean, result.get("name", ""))
-
-        return {
-            **payload,
-            **standard_response_fields(ctx.query_hash, data_as_of, ingest_healthy),
-        }
+            _out = {
+                **payload,
+                **standard_response_fields(ctx.query_hash, data_as_of, ingest_healthy),
+            }
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T04",
+            tool_name="fetch_nonprofit_by_ein",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -219,68 +248,92 @@ async def search_nonprofits_by_name(name: str, state: str = "") -> dict:
     """Use this to find US nonprofits by organisation name.
     Provide a full or partial name and optional state code.
     Returns up to 25 matches with EINs for precise lookup."""
-    name_clean  = name.strip().upper()
-    state_clean = state.strip().upper()
-    params      = {"name": name_clean, "state": state_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        name_clean  = name.strip().upper()
+        state_clean = state.strip().upper()
+        params      = {"name": name_clean, "state": state_clean}
 
-    async with AuditContext("T04", params, "1.0") as ctx:
-        phash = make_params_hash(params)
+        async with AuditContext("T04", params, "1.0") as ctx:
+            phash = make_params_hash(params)
 
-        # ── Cache check ───────────────────────────────────────────────────────
-        cached = get_cached("T04", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    True,
-                ),
-                "cache_hit": True,
+            # ── Cache check ───────────────────────────────────────────────────────
+            cached = get_cached("T04", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        True,
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
+
+            # ── Live search — stream CSVs ─────────────────────────────────────────
+            results = await _search_by_name_live(name_clean, state_clean, limit=25)
+            data_as_of = datetime.now(timezone.utc).isoformat()
+            if not results and is_tripped("irs_bmf"):
+                return error_response(
+                    error_code=ErrorCode.CIRCUIT_OPEN,
+                    message="IRS data source currently unavailable. Try again later.",
+                    query_hash=ctx.query_hash,
+                    retry_after=300,
+                    ingest_healthy=False,
+                )
+
+            raw_bytes    = json.dumps(results).encode()
+            payload_hash = compute_payload_hash(raw_bytes)
+            markdown     = _build_search_markdown(results, name, state)
+
+            payload = {
+                "tool_id":         "T04",
+                "source_url":      "https://www.irs.gov/pub/irs-soi/eo1.csv",
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            {"results": results, "count": len(results)},
+                "markdown_output": markdown,
+                "disclaimer":      T04_DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
             }
 
-        # ── Live search — stream CSVs ─────────────────────────────────────────
-        results = await _search_by_name_live(name_clean, state_clean, limit=25)
-        data_as_of = datetime.now(timezone.utc).isoformat()
-        if not results and is_tripped("irs_bmf"):
-            return error_response(
-                error_code=ErrorCode.CIRCUIT_OPEN,
-                message="IRS data source currently unavailable. Try again later.",
-                query_hash=ctx.query_hash,
-                retry_after=300,
-                ingest_healthy=False,
-            )
+            set_cached("T04", phash, payload, IRS_BMF_TTL)
+            ctx.set_cache_hit(False)
+            record_success_sync("irs_bmf")
 
-        raw_bytes    = json.dumps(results).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        markdown     = _build_search_markdown(results, name, state)
+            log.info("t04.search_nonprofits_by_name results=%d name=%s state=%s",
+                     len(results), name_clean, state_clean)
 
-        payload = {
-            "tool_id":         "T04",
-            "source_url":      "https://www.irs.gov/pub/irs-soi/eo1.csv",
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            {"results": results, "count": len(results)},
-            "markdown_output": markdown,
-            "disclaimer":      T04_DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        set_cached("T04", phash, payload, IRS_BMF_TTL)
-        ctx.set_cache_hit(False)
-        record_success_sync("irs_bmf")
-
-        log.info("t04.search_nonprofits_by_name results=%d name=%s state=%s",
-                 len(results), name_clean, state_clean)
-
-        return {
-            **payload,
-            **standard_response_fields(ctx.query_hash, data_as_of, True),
-        }
+            _out = {
+                **payload,
+                **standard_response_fields(ctx.query_hash, data_as_of, True),
+            }
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T04",
+            tool_name="search_nonprofits_by_name",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -294,122 +347,147 @@ async def fetch_charity_uk(charity_number_or_name: str) -> dict:
     """Use this to look up a UK registered charity by number or name.
     Provide the charity number or organisation name.
     Returns income, activities, and registration details."""
-    query = charity_number_or_name.strip()
-    params = {"charity_number_or_name": query}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        query = charity_number_or_name.strip()
+        params = {"charity_number_or_name": query}
 
-    async with AuditContext("T04", params, "1.0") as ctx:
-        # Determine if query is a registration number or name
-        is_number = query.replace("-", "").isdigit()
-        regno = query if is_number else None
-        phash = make_params_hash(params)
+        async with AuditContext("T04", params, "1.0") as ctx:
+            # Determine if query is a registration number or name
+            is_number = query.replace("-", "").isdigit()
+            regno = query if is_number else None
+            phash = make_params_hash(params)
 
-        # ── Cache check ───────────────────────────────────────────────────────
-        cache_key = f"uk:{regno}" if regno else phash
-        cached = get_cached("T04", cache_key) or get_cached("T04", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    True,
-                ),
-                "cache_hit": True,
-            }
+            # ── Cache check ───────────────────────────────────────────────────────
+            cache_key = f"uk:{regno}" if regno else phash
+            cached = get_cached("T04", cache_key) or get_cached("T04", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        True,
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        # ── Circuit breaker ───────────────────────────────────────────────────
-        if is_tripped("uk_charity"):
-            archive = get_cached("T04", cache_key + "_archive")
-            return {
+            # ── Circuit breaker ───────────────────────────────────────────────────
+            if is_tripped("uk_charity"):
+                archive = get_cached("T04", cache_key + "_archive")
+                _error_code = "CIRCUIT_OPEN"
+                return {
+                    "tool_id":         "T04",
+                    "data":            archive or {},
+                    "markdown_output": "UK Charity data temporarily unavailable. "
+                                       "Please try again later.",
+                    "staleness_notice": get_staleness_notice(
+                        "uk_charity",
+                        (archive or {}).get("data_as_of", "unknown"),
+                    ),
+                    "disclaimer":  UK_DISCLAIMER,
+                    "cache_hit":   False,
+                    "sha256_hash": "",
+                    **standard_response_fields(ctx.query_hash, "", False),
+                }
+
+            # ── Live fetch — bulk extract (no auth required) ─────────────────────
+            # Primary: Redis index populated by UKCharityWorker (fast).
+            # Fallback: download full bulk extract ZIP from Azure blob storage.
+            # No API key needed for either path.
+            try:
+                if regno:
+                    result = await _fetch_uk_by_number(regno)
+                else:
+                    result = await _search_uk_by_name(query)
+
+            except httpx.TimeoutException:
+                record_failure_sync("uk_charity")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                    message="UK Charity Commission bulk data timed out. Try again shortly.",
+                    query_hash=ctx.query_hash,
+                    retry_after=60,
+                    ingest_healthy=False,
+                )
+            except Exception:
+                record_failure_sync("uk_charity")
+                log.exception("t04.fetch_charity_uk unexpected error query=%s", query)
+                return error_response(
+                    error_code=ErrorCode.INTERNAL_ERROR,
+                    message="An internal error occurred. Please try again.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=False,
+                )
+
+            if not result:
+                return error_response(
+                    error_code=ErrorCode.NOT_FOUND,
+                    message=f"Charity '{query}' not found in UK Charity Commission register.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=True,
+                )
+
+            raw_bytes    = json.dumps(result).encode()
+            payload_hash = compute_payload_hash(raw_bytes)
+            data_as_of   = datetime.now(timezone.utc).isoformat()
+            markdown     = _build_uk_charity_markdown(result)
+
+            payload = {
+                "status":          "ok",
                 "tool_id":         "T04",
-                "data":            archive or {},
-                "markdown_output": "UK Charity data temporarily unavailable. "
-                                   "Please try again later.",
-                "staleness_notice": get_staleness_notice(
-                    "uk_charity",
-                    (archive or {}).get("data_as_of", "unknown"),
-                ),
-                "disclaimer":  UK_DISCLAIMER,
-                "cache_hit":   False,
-                "sha256_hash": "",
-                **standard_response_fields(ctx.query_hash, "", False),
+                "source_url":      UK_CHARITY_SOURCE_URL,
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            result,
+                "markdown_output": markdown,
+                "disclaimer":      UK_DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
             }
 
-        # ── Live fetch — bulk extract (no auth required) ─────────────────────
-        # Primary: Redis index populated by UKCharityWorker (fast).
-        # Fallback: download full bulk extract ZIP from Azure blob storage.
-        # No API key needed for either path.
-        try:
+            # TTL: 86400s — UK GDPR maximum, not negotiable
+            set_cached("T04", phash, payload, UK_CHARITY_TTL)
             if regno:
-                result = await _fetch_uk_by_number(regno)
-            else:
-                result = await _search_uk_by_name(query)
+                set_cached("T04", f"uk:{regno}", payload, UK_CHARITY_TTL)
+                set_cached("T04", f"uk:{regno}_archive", payload, UK_CHARITY_TTL * 4)
+            ctx.set_cache_hit(False)
+            record_success_sync("uk_charity")
 
-        except httpx.TimeoutException:
-            record_failure_sync("uk_charity")
-            return error_response(
-                error_code=ErrorCode.UPSTREAM_TIMEOUT,
-                message="UK Charity Commission bulk data timed out. Try again shortly.",
-                query_hash=ctx.query_hash,
-                retry_after=60,
-                ingest_healthy=False,
-            )
-        except Exception:
-            record_failure_sync("uk_charity")
-            log.exception("t04.fetch_charity_uk unexpected error query=%s", query)
-            return error_response(
-                error_code=ErrorCode.INTERNAL_ERROR,
-                message="An internal error occurred. Please try again.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=False,
-            )
+            log.info("t04.fetch_charity_uk ok regno=%s name=%s",
+                     regno, result.get("name", ""))
 
-        if not result:
-            return error_response(
-                error_code=ErrorCode.NOT_FOUND,
-                message=f"Charity '{query}' not found in UK Charity Commission register.",
-                query_hash=ctx.query_hash,
-                retry_after=0,
-                ingest_healthy=True,
-            )
-
-        raw_bytes    = json.dumps(result).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        data_as_of   = datetime.now(timezone.utc).isoformat()
-        markdown     = _build_uk_charity_markdown(result)
-
-        payload = {
-            "status":          "ok",
-            "tool_id":         "T04",
-            "source_url":      UK_CHARITY_SOURCE_URL,
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            result,
-            "markdown_output": markdown,
-            "disclaimer":      UK_DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        # TTL: 86400s — UK GDPR maximum, not negotiable
-        set_cached("T04", phash, payload, UK_CHARITY_TTL)
-        if regno:
-            set_cached("T04", f"uk:{regno}", payload, UK_CHARITY_TTL)
-            set_cached("T04", f"uk:{regno}_archive", payload, UK_CHARITY_TTL * 4)
-        ctx.set_cache_hit(False)
-        record_success_sync("uk_charity")
-
-        log.info("t04.fetch_charity_uk ok regno=%s name=%s",
-                 regno, result.get("name", ""))
-
-        return {
-            **payload,
-            **standard_response_fields(ctx.query_hash, data_as_of, True),
-        }
+            _out = {
+                **payload,
+                **standard_response_fields(ctx.query_hash, data_as_of, True),
+            }
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T04",
+            tool_name="fetch_charity_uk",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

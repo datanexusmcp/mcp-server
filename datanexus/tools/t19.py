@@ -28,8 +28,10 @@ Rate limit: Regulations.gov 1,000 req/day free tier.
   Ingest worker runs at 21600s (6h) intervals to stay within limit.
 """
 
+import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -51,6 +53,7 @@ from datanexus.core.circuit_breaker import (
 )
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
+from datanexus.analytics import track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t19")
 
@@ -185,21 +188,28 @@ async def search_open_rulemakings(
     """Use this to find open regulatory rulemakings and active comment periods.
     Provide keywords and optional agency abbreviation such as EPA or SEC.
     Returns active rulemakings with comment deadlines and docket IDs."""
-    kw_clean     = keyword.strip()
-    agency_clean = agency.strip().upper()
-    status_clean = status.strip().lower()
-    if status_clean not in ("open", "closed", "all"):
-        status_clean = "open"
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        kw_clean     = keyword.strip()
+        agency_clean = agency.strip().upper()
+        status_clean = status.strip().lower()
+        if status_clean not in ("open", "closed", "all"):
+            status_clean = "open"
 
-    params = {"keyword": kw_clean, "agency": agency_clean, "status": status_clean}
+        params = {"keyword": kw_clean, "agency": agency_clean, "status": status_clean}
 
-    async with AuditContext("T19", params, "1.0") as _:
-        _incr_calls("T19")
-        phash = make_params_hash(params)
+        async with AuditContext("T19", params, "1.0") as _:
+            _incr_calls("T19")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T19", phash)
-        if cached:
-            return cached
+            cached = get_cached("T19", phash)
+            if cached:
+                _success = True
+                _cache_hit = True
+                return cached
 
         dockets: list[dict] = []
         source_used = ""
@@ -304,6 +314,7 @@ No rulemakings found for this keyword and status.
 
 {DISCLAIMER}"""
             _validate_canary(md)
+            _success = True
             return {
                 "keyword": kw_clean, "agency": agency_clean, "status": status_clean,
                 "count": 0, "dockets": [],
@@ -347,7 +358,22 @@ No rulemakings found for this keyword and status.
             **standard_response_fields("T19", phash, "1.0"),
         }
         set_cached("T19", phash, out, T19_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T19",
+            tool_name="search_open_rulemakings",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -361,16 +387,23 @@ async def fetch_docket_details(docket_id: str) -> dict:
     """Use this to get full details for a specific regulatory docket.
     Provide the docket ID such as EPA-HQ-OAR-2021-0317.
     Returns docket summary, documents list, and total comment count."""
-    did_clean = docket_id.strip().upper()
-    params = {"docket_id": did_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        did_clean = docket_id.strip().upper()
+        params = {"docket_id": did_clean}
 
-    async with AuditContext("T19", params, "1.0") as _:
-        _incr_calls("T19")
-        phash = make_params_hash(params)
+        async with AuditContext("T19", params, "1.0") as _:
+            _incr_calls("T19")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T19", phash)
-        if cached:
-            return cached
+            cached = get_cached("T19", phash)
+            if cached:
+                _success = True
+                _cache_hit = True
+                return cached
 
         detail: dict = {}
         documents: list[dict] = []
@@ -431,6 +464,7 @@ Docket not found in Regulations.gov. The docket ID may be incorrect or not yet i
 
 {DISCLAIMER}"""
                     _validate_canary(md)
+                    _success = True
                     return {
                         "docket_id": did_clean, "found": False,
                         "source": "Regulations.gov", "markdown": md,
@@ -501,6 +535,7 @@ Docket details unavailable from all sources. Try again shortly.
 
 {DISCLAIMER}"""
             _validate_canary(md)
+            _success = True
             return {
                 "docket_id": did_clean, "found": False,
                 "source": source_used or "unavailable",
@@ -544,7 +579,22 @@ Docket details unavailable from all sources. Try again shortly.
             **standard_response_fields("T19", phash, "1.0"),
         }
         set_cached("T19", phash, out, T19_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T19",
+            tool_name="fetch_docket_details",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -562,18 +612,25 @@ async def fetch_federal_register_notices(
     """Use this to fetch recent Federal Register notices for a US agency.
     Provide the agency name or abbreviation.
     Returns recent notices with publication dates and document types."""
-    agency_clean  = agency.strip()
-    keyword_clean = keyword.strip()
-    date_clean    = date_from.strip()
-    params = {"agency": agency_clean, "keyword": keyword_clean, "date_from": date_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        agency_clean  = agency.strip()
+        keyword_clean = keyword.strip()
+        date_clean    = date_from.strip()
+        params = {"agency": agency_clean, "keyword": keyword_clean, "date_from": date_clean}
 
-    async with AuditContext("T19", params, "1.0") as _:
-        _incr_calls("T19")
-        phash = make_params_hash(params)
+        async with AuditContext("T19", params, "1.0") as _:
+            _incr_calls("T19")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T19", phash)
-        if cached:
-            return cached
+            cached = get_cached("T19", phash)
+            if cached:
+                _success = True
+                _cache_hit = True
+                return cached
 
         notices: list[dict] = []
         source_used = ""
@@ -644,6 +701,7 @@ No notices found for this agency{' and keyword' if keyword_clean else ''}.
 
 {DISCLAIMER}"""
             _validate_canary(md)
+            _success = True
             return {
                 "agency": agency_clean, "keyword": keyword_clean, "date_from": date_clean,
                 "count": 0, "notices": [],
@@ -689,4 +747,19 @@ No notices found for this agency{' and keyword' if keyword_clean else ''}.
             **standard_response_fields("T19", phash, "1.0"),
         }
         set_cached("T19", phash, out, T19_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T19",
+            tool_name="fetch_federal_register_notices",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))

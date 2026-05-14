@@ -566,3 +566,46 @@ Rule D3: glama.json tool count must be updated
   in the same commit as every tool registration.
   Never let glama.json description fall behind
   the actual registered tool count.
+
+---
+
+## OAuth 2.1 Requirements (Sprint 3)
+
+Hard requirements before MCPIZE_ACTIVE=true:
+- Token validation before @verify_entitlement on every paid call
+- Tokens in Redis only: oauth:token:{session_id} with 1-hour TTL
+- PKCE: S256 required — plain method MUST be rejected
+- Token audience MUST be datanexusmcp.com (RFC 8707)
+- Unauthenticated requests allowed ONLY when MCPIZE_ACTIVE=false
+- MCPize is the AS — DataNexus validates tokens only, never issues them
+- Implementation: Sprint 4
+
+Builder hard stops:
+- NEVER implement token issuance
+- NEVER store tokens in module-level memory
+- NEVER accept plain PKCE
+- NEVER enforce OAuth when MCPIZE_ACTIVE=false
+
+---
+
+## gstack
+
+Use the `/browse` skill from gstack for all web browsing tasks.
+gstack is installed at `~/.claude/skills/gstack`. The `/browse` skill provides a headless Chromium browser with full page rendering, JS execution, and screenshot support — use it instead of any other web fetch or browser tool whenever you need to load a URL, scrape a page, or interact with a web interface.
+
+---
+
+## PostHog Analytics — Privacy Rules
+
+Rule: PostHog events must NEVER include:
+  - Query parameters (ein, npi, domain, etc.)
+  - User identifiable information
+  - Raw tool inputs or outputs
+  - IP addresses or session tokens
+
+Allowed properties: tool_id, tool_name, tool_group,
+  success, latency_ms, cache_hit, error_code,
+  ecosystem, jurisdiction, date.
+
+The anon_id() rotates daily and cannot be
+linked to any individual across days.

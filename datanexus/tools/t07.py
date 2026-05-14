@@ -21,8 +21,10 @@ Cache TTL: 14400 seconds (4 hours)
 Circuit breaker source IDs: "iana_rdap", "crt_sh", "cloudflare_doh"
 """
 
+import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -48,6 +50,7 @@ from datanexus.core.circuit_breaker import (
 from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
+from datanexus.analytics import track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t07")
 
@@ -124,101 +127,126 @@ async def fetch_domain_rdap(domain: str) -> dict:
     """Use this to look up domain registration details and ownership.
     Provide the domain name such as example.com.
     Returns registrar, registration date, expiry date, and current status."""
-    domain_clean = domain.strip().lower().lstrip("www.").lstrip("https://").lstrip("http://")
-    # Strip any trailing path
-    domain_clean = domain_clean.split("/")[0]
-    params = {"domain": domain_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        domain_clean = domain.strip().lower().lstrip("www.").lstrip("https://").lstrip("http://")
+        # Strip any trailing path
+        domain_clean = domain_clean.split("/")[0]
+        params = {"domain": domain_clean}
 
-    async with AuditContext("T07", params, "1.0") as ctx:
-        _incr_calls("T07")
-        phash = make_params_hash(params)
+        async with AuditContext("T07", params, "1.0") as ctx:
+            _incr_calls("T07")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T07", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            log.info("t07.fetch_domain_rdap cache_hit domain=%s", domain_clean)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
-            }
+            cached = get_cached("T07", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                log.info("t07.fetch_domain_rdap cache_hit domain=%s", domain_clean)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        if is_tripped("iana_rdap"):
-            archive = get_cached("T07", phash + "_archive")
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return {
+            if is_tripped("iana_rdap"):
+                archive = get_cached("T07", phash + "_archive")
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
+                return {
+                    "tool_id":         "T07",
+                    "data":            archive or {},
+                    "markdown_output": "IANA RDAP temporarily unavailable. "
+                                       "Serving archived data.",
+                    "staleness_notice": get_staleness_notice(
+                        "iana_rdap",
+                        (archive or {}).get("data_as_of", "unknown"),
+                    ),
+                    "disclaimer":  DISCLAIMER,
+                    "cache_hit":   False,
+                    "sha256_hash": "",
+                    **standard_response_fields(ctx.query_hash, "", False),
+                }
+
+            try:
+                result = await _fetch_rdap(domain_clean)
+            except httpx.TimeoutException:
+                record_failure_sync("iana_rdap")
+                return error_response(
+                    ErrorCode.UPSTREAM_TIMEOUT,
+                    "IANA RDAP timed out. Try again shortly.",
+                    ctx.query_hash, 30, False,
+                )
+            except Exception:
+                record_failure_sync("iana_rdap")
+                log.exception("t07.fetch_domain_rdap error domain=%s", domain_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    "An internal error occurred. Please try again.",
+                    ctx.query_hash, 0, False,
+                )
+
+            if not result:
+                return error_response(
+                    ErrorCode.NOT_FOUND,
+                    f"Domain '{domain_clean}' not found in RDAP registry. "
+                    "The domain may not be registered or the registry may be unsupported.",
+                    ctx.query_hash, 0, True,
+                )
+
+            raw_bytes    = json.dumps(result).encode()
+            payload_hash = compute_payload_hash(raw_bytes)
+            data_as_of   = datetime.now(timezone.utc).isoformat()
+            markdown     = _build_rdap_markdown(result, domain_clean)
+            _validate_canary(markdown)
+
+            payload = {
                 "tool_id":         "T07",
-                "data":            archive or {},
-                "markdown_output": "IANA RDAP temporarily unavailable. "
-                                   "Serving archived data.",
-                "staleness_notice": get_staleness_notice(
-                    "iana_rdap",
-                    (archive or {}).get("data_as_of", "unknown"),
-                ),
-                "disclaimer":  DISCLAIMER,
-                "cache_hit":   False,
-                "sha256_hash": "",
-                **standard_response_fields(ctx.query_hash, "", False),
+                "source_url":      f"https://rdap.iana.org/domain/{domain_clean}",
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            result,
+                "markdown_output": markdown,
+                "disclaimer":      DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
             }
 
-        try:
-            result = await _fetch_rdap(domain_clean)
-        except httpx.TimeoutException:
-            record_failure_sync("iana_rdap")
-            return error_response(
-                ErrorCode.UPSTREAM_TIMEOUT,
-                "IANA RDAP timed out. Try again shortly.",
-                ctx.query_hash, 30, False,
-            )
-        except Exception:
-            record_failure_sync("iana_rdap")
-            log.exception("t07.fetch_domain_rdap error domain=%s", domain_clean)
-            return error_response(
-                ErrorCode.INTERNAL_ERROR,
-                "An internal error occurred. Please try again.",
-                ctx.query_hash, 0, False,
-            )
+            set_cached("T07", phash, payload, T07_TTL)
+            set_cached("T07", phash + "_archive", payload, T07_TTL * 6)
+            ctx.set_cache_hit(False)
+            record_success_sync("iana_rdap")
 
-        if not result:
-            return error_response(
-                ErrorCode.NOT_FOUND,
-                f"Domain '{domain_clean}' not found in RDAP registry. "
-                "The domain may not be registered or the registry may be unsupported.",
-                ctx.query_hash, 0, True,
-            )
-
-        raw_bytes    = json.dumps(result).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        data_as_of   = datetime.now(timezone.utc).isoformat()
-        markdown     = _build_rdap_markdown(result, domain_clean)
-        _validate_canary(markdown)
-
-        payload = {
-            "tool_id":         "T07",
-            "source_url":      f"https://rdap.iana.org/domain/{domain_clean}",
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            result,
-            "markdown_output": markdown,
-            "disclaimer":      DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        set_cached("T07", phash, payload, T07_TTL)
-        set_cached("T07", phash + "_archive", payload, T07_TTL * 6)
-        ctx.set_cache_hit(False)
-        record_success_sync("iana_rdap")
-
-        log.info("t07.fetch_domain_rdap ok domain=%s registrar=%s",
-                 domain_clean, result.get("registrar", ""))
-        return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            log.info("t07.fetch_domain_rdap ok domain=%s registrar=%s",
+                     domain_clean, result.get("registrar", ""))
+            _out = {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T07",
+            tool_name="fetch_domain_rdap",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -232,78 +260,103 @@ async def fetch_ssl_certificate_chain(domain: str) -> dict:
     """Use this to inspect the SSL certificate chain for a domain.
     Provide the domain name.
     Returns certificate issuer, validity dates, and full chain detail."""
-    domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
-    params = {"domain": domain_clean, "query_type": "cert_chain"}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
+        params = {"domain": domain_clean, "query_type": "cert_chain"}
 
-    async with AuditContext("T07", params, "1.0") as ctx:
-        _incr_calls("T07")
-        phash = make_params_hash(params)
+        async with AuditContext("T07", params, "1.0") as ctx:
+            _incr_calls("T07")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T07", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    True,
-                ),
-                "cache_hit": True,
+            cached = get_cached("T07", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        True,
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
+
+            if is_tripped("crt_sh"):
+                _error_code = "CIRCUIT_OPEN"
+                return error_response(
+                    ErrorCode.CIRCUIT_OPEN,
+                    "crt.sh Certificate Transparency temporarily unavailable. Try again later.",
+                    ctx.query_hash, 300, False,
+                )
+
+            try:
+                certs = await _fetch_crt_sh(domain_clean, limit=10)
+            except httpx.TimeoutException:
+                record_failure_sync("crt_sh")
+                return error_response(
+                    ErrorCode.UPSTREAM_TIMEOUT,
+                    "crt.sh timed out. Try again shortly.",
+                    ctx.query_hash, 30, False,
+                )
+            except Exception:
+                record_failure_sync("crt_sh")
+                log.exception("t07.fetch_ssl_certificate_chain error domain=%s", domain_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    "An internal error occurred. Please try again.",
+                    ctx.query_hash, 0, False,
+                )
+
+            data_as_of   = datetime.now(timezone.utc).isoformat()
+            raw_bytes    = json.dumps(certs).encode()
+            payload_hash = compute_payload_hash(raw_bytes)
+            markdown     = _build_cert_markdown(certs, domain_clean)
+            _validate_canary(markdown)
+
+            payload = {
+                "tool_id":         "T07",
+                "source_url":      f"https://crt.sh/?q={domain_clean}&output=json",
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            {"domain": domain_clean, "certificates": certs, "count": len(certs)},
+                "markdown_output": markdown,
+                "disclaimer":      DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
             }
 
-        if is_tripped("crt_sh"):
-            return error_response(
-                ErrorCode.CIRCUIT_OPEN,
-                "crt.sh Certificate Transparency temporarily unavailable. Try again later.",
-                ctx.query_hash, 300, False,
-            )
+            set_cached("T07", phash, payload, T07_TTL)
+            ctx.set_cache_hit(False)
+            record_success_sync("crt_sh")
 
-        try:
-            certs = await _fetch_crt_sh(domain_clean, limit=10)
-        except httpx.TimeoutException:
-            record_failure_sync("crt_sh")
-            return error_response(
-                ErrorCode.UPSTREAM_TIMEOUT,
-                "crt.sh timed out. Try again shortly.",
-                ctx.query_hash, 30, False,
-            )
-        except Exception:
-            record_failure_sync("crt_sh")
-            log.exception("t07.fetch_ssl_certificate_chain error domain=%s", domain_clean)
-            return error_response(
-                ErrorCode.INTERNAL_ERROR,
-                "An internal error occurred. Please try again.",
-                ctx.query_hash, 0, False,
-            )
-
-        data_as_of   = datetime.now(timezone.utc).isoformat()
-        raw_bytes    = json.dumps(certs).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        markdown     = _build_cert_markdown(certs, domain_clean)
-        _validate_canary(markdown)
-
-        payload = {
-            "tool_id":         "T07",
-            "source_url":      f"https://crt.sh/?q={domain_clean}&output=json",
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            {"domain": domain_clean, "certificates": certs, "count": len(certs)},
-            "markdown_output": markdown,
-            "disclaimer":      DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        set_cached("T07", phash, payload, T07_TTL)
-        ctx.set_cache_hit(False)
-        record_success_sync("crt_sh")
-
-        log.info("t07.fetch_ssl_certificate_chain ok domain=%s certs=%d",
-                 domain_clean, len(certs))
-        return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            log.info("t07.fetch_ssl_certificate_chain ok domain=%s certs=%d",
+                     domain_clean, len(certs))
+            _out = {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T07",
+            tool_name="fetch_ssl_certificate_chain",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -317,85 +370,110 @@ async def fetch_dns_records(domain: str, record_types: list) -> dict:
     """Use this to get DNS records for a domain.
     Provide the domain name and optional record type such as A, MX, or TXT.
     Returns all matching DNS records currently in effect."""
-    domain_clean  = domain.strip().lower().split("/")[0]
-    # Normalise and deduplicate record types — uppercase, max 10
-    valid_types = {"A", "AAAA", "MX", "TXT", "NS", "CNAME", "SOA", "CAA", "SRV"}
-    types_clean = list({t.upper() for t in (record_types or ["A"]) if t.upper() in valid_types})[:10]
-    if not types_clean:
-        types_clean = ["A"]
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        domain_clean  = domain.strip().lower().split("/")[0]
+        # Normalise and deduplicate record types — uppercase, max 10
+        valid_types = {"A", "AAAA", "MX", "TXT", "NS", "CNAME", "SOA", "CAA", "SRV"}
+        types_clean = list({t.upper() for t in (record_types or ["A"]) if t.upper() in valid_types})[:10]
+        if not types_clean:
+            types_clean = ["A"]
 
-    params = {"domain": domain_clean, "record_types": sorted(types_clean)}
+        params = {"domain": domain_clean, "record_types": sorted(types_clean)}
 
-    async with AuditContext("T07", params, "1.0") as ctx:
-        _incr_calls("T07")
-        phash = make_params_hash(params)
+        async with AuditContext("T07", params, "1.0") as ctx:
+            _incr_calls("T07")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T07", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    True,
-                ),
-                "cache_hit": True,
+            cached = get_cached("T07", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        True,
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
+
+            if is_tripped("cloudflare_doh"):
+                _error_code = "CIRCUIT_OPEN"
+                return error_response(
+                    ErrorCode.CIRCUIT_OPEN,
+                    "Cloudflare DNS temporarily unavailable. Try again later.",
+                    ctx.query_hash, 300, False,
+                )
+
+            try:
+                records = await _fetch_dns_records(domain_clean, types_clean)
+            except httpx.TimeoutException:
+                record_failure_sync("cloudflare_doh")
+                return error_response(
+                    ErrorCode.UPSTREAM_TIMEOUT,
+                    "Cloudflare DNS timed out. Try again shortly.",
+                    ctx.query_hash, 30, False,
+                )
+            except Exception:
+                record_failure_sync("cloudflare_doh")
+                log.exception("t07.fetch_dns_records error domain=%s", domain_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    "An internal error occurred. Please try again.",
+                    ctx.query_hash, 0, False,
+                )
+
+            data_as_of   = datetime.now(timezone.utc).isoformat()
+            raw_bytes    = json.dumps(records).encode()
+            payload_hash = compute_payload_hash(raw_bytes)
+            markdown     = _build_dns_markdown(records, domain_clean, types_clean)
+            _validate_canary(markdown)
+
+            types_found = [t for t, recs in records.items() if recs]
+            payload = {
+                "tool_id":         "T07",
+                "source_url":      CF_DOH_URL,
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            {"domain": domain_clean, "records": records, "types_found": types_found},
+                "markdown_output": markdown,
+                "disclaimer":      DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
             }
 
-        if is_tripped("cloudflare_doh"):
-            return error_response(
-                ErrorCode.CIRCUIT_OPEN,
-                "Cloudflare DNS temporarily unavailable. Try again later.",
-                ctx.query_hash, 300, False,
-            )
+            set_cached("T07", phash, payload, T07_TTL)
+            ctx.set_cache_hit(False)
+            record_success_sync("cloudflare_doh")
 
-        try:
-            records = await _fetch_dns_records(domain_clean, types_clean)
-        except httpx.TimeoutException:
-            record_failure_sync("cloudflare_doh")
-            return error_response(
-                ErrorCode.UPSTREAM_TIMEOUT,
-                "Cloudflare DNS timed out. Try again shortly.",
-                ctx.query_hash, 30, False,
-            )
-        except Exception:
-            record_failure_sync("cloudflare_doh")
-            log.exception("t07.fetch_dns_records error domain=%s", domain_clean)
-            return error_response(
-                ErrorCode.INTERNAL_ERROR,
-                "An internal error occurred. Please try again.",
-                ctx.query_hash, 0, False,
-            )
-
-        data_as_of   = datetime.now(timezone.utc).isoformat()
-        raw_bytes    = json.dumps(records).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        markdown     = _build_dns_markdown(records, domain_clean, types_clean)
-        _validate_canary(markdown)
-
-        types_found = [t for t, recs in records.items() if recs]
-        payload = {
-            "tool_id":         "T07",
-            "source_url":      CF_DOH_URL,
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            {"domain": domain_clean, "records": records, "types_found": types_found},
-            "markdown_output": markdown,
-            "disclaimer":      DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        set_cached("T07", phash, payload, T07_TTL)
-        ctx.set_cache_hit(False)
-        record_success_sync("cloudflare_doh")
-
-        log.info("t07.fetch_dns_records ok domain=%s types=%s",
-                 domain_clean, types_found)
-        return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            log.info("t07.fetch_dns_records ok domain=%s types=%s",
+                     domain_clean, types_found)
+            _out = {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T07",
+            tool_name="fetch_dns_records",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -409,82 +487,107 @@ async def fetch_domain_history(domain: str) -> dict:
     """Use this to get historical SSL certificate records for a domain.
     Provide the domain name.
     Returns past certificates from Certificate Transparency logs."""
-    domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
-    params = {"domain": domain_clean, "query_type": "history"}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
+        params = {"domain": domain_clean, "query_type": "history"}
 
-    async with AuditContext("T07", params, "1.0") as ctx:
-        _incr_calls("T07")
-        phash = make_params_hash(params)
+        async with AuditContext("T07", params, "1.0") as ctx:
+            _incr_calls("T07")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T07", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    True,
-                ),
-                "cache_hit": True,
+            cached = get_cached("T07", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        True,
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
+
+            if is_tripped("crt_sh"):
+                _error_code = "CIRCUIT_OPEN"
+                return error_response(
+                    ErrorCode.CIRCUIT_OPEN,
+                    "crt.sh Certificate Transparency temporarily unavailable. Try again later.",
+                    ctx.query_hash, 300, False,
+                )
+
+            try:
+                # Broader wildcard query to capture all subdomains' historical certs
+                history = await _fetch_crt_sh(f"%.{domain_clean}", limit=50)
+                if not history:
+                    # Fallback to exact domain
+                    history = await _fetch_crt_sh(domain_clean, limit=50)
+            except httpx.TimeoutException:
+                record_failure_sync("crt_sh")
+                return error_response(
+                    ErrorCode.UPSTREAM_TIMEOUT,
+                    "crt.sh timed out. Try again shortly.",
+                    ctx.query_hash, 30, False,
+                )
+            except Exception:
+                record_failure_sync("crt_sh")
+                log.exception("t07.fetch_domain_history error domain=%s", domain_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    "An internal error occurred. Please try again.",
+                    ctx.query_hash, 0, False,
+                )
+
+            data_as_of   = datetime.now(timezone.utc).isoformat()
+            raw_bytes    = json.dumps(history).encode()
+            payload_hash = compute_payload_hash(raw_bytes)
+            markdown     = _build_history_markdown(history, domain_clean)
+            _validate_canary(markdown)
+
+            payload = {
+                "tool_id":         "T07",
+                "source_url":      f"https://crt.sh/?q=%.{domain_clean}&output=json",
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            {"domain": domain_clean, "certificate_events": history, "count": len(history)},
+                "markdown_output": markdown,
+                "disclaimer":      DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
             }
 
-        if is_tripped("crt_sh"):
-            return error_response(
-                ErrorCode.CIRCUIT_OPEN,
-                "crt.sh Certificate Transparency temporarily unavailable. Try again later.",
-                ctx.query_hash, 300, False,
-            )
+            set_cached("T07", phash, payload, T07_TTL)
+            ctx.set_cache_hit(False)
+            record_success_sync("crt_sh")
 
-        try:
-            # Broader wildcard query to capture all subdomains' historical certs
-            history = await _fetch_crt_sh(f"%.{domain_clean}", limit=50)
-            if not history:
-                # Fallback to exact domain
-                history = await _fetch_crt_sh(domain_clean, limit=50)
-        except httpx.TimeoutException:
-            record_failure_sync("crt_sh")
-            return error_response(
-                ErrorCode.UPSTREAM_TIMEOUT,
-                "crt.sh timed out. Try again shortly.",
-                ctx.query_hash, 30, False,
-            )
-        except Exception:
-            record_failure_sync("crt_sh")
-            log.exception("t07.fetch_domain_history error domain=%s", domain_clean)
-            return error_response(
-                ErrorCode.INTERNAL_ERROR,
-                "An internal error occurred. Please try again.",
-                ctx.query_hash, 0, False,
-            )
-
-        data_as_of   = datetime.now(timezone.utc).isoformat()
-        raw_bytes    = json.dumps(history).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        markdown     = _build_history_markdown(history, domain_clean)
-        _validate_canary(markdown)
-
-        payload = {
-            "tool_id":         "T07",
-            "source_url":      f"https://crt.sh/?q=%.{domain_clean}&output=json",
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            {"domain": domain_clean, "certificate_events": history, "count": len(history)},
-            "markdown_output": markdown,
-            "disclaimer":      DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        set_cached("T07", phash, payload, T07_TTL)
-        ctx.set_cache_hit(False)
-        record_success_sync("crt_sh")
-
-        log.info("t07.fetch_domain_history ok domain=%s events=%d",
-                 domain_clean, len(history))
-        return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            log.info("t07.fetch_domain_history ok domain=%s events=%d",
+                     domain_clean, len(history))
+            _out = {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T07",
+            tool_name="fetch_domain_history",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -26,8 +26,10 @@ Circuit breaker source IDs: "usaspending", "sam_gov", "eu_ted",
   "uk_find_a_tender"
 """
 
+import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -49,6 +51,7 @@ from datanexus.core.circuit_breaker import (
 )
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
+from datanexus.analytics import track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t18")
 
@@ -184,22 +187,29 @@ async def search_contract_awards(
     """Use this to search government contract awards by keyword or agency.
     Provide a keyword, optional agency name, and optional date range.
     Returns matching awards with values, recipients, and award dates."""
-    kw_clean     = keyword.strip()
-    agency_clean = agency.strip()
-    date_clean   = date_from.strip()
-    juris_clean  = jurisdiction.strip().upper()
-    params = {
-        "keyword": kw_clean, "agency": agency_clean,
-        "date_from": date_clean, "jurisdiction": juris_clean,
-    }
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        kw_clean     = keyword.strip()
+        agency_clean = agency.strip()
+        date_clean   = date_from.strip()
+        juris_clean  = jurisdiction.strip().upper()
+        params = {
+            "keyword": kw_clean, "agency": agency_clean,
+            "date_from": date_clean, "jurisdiction": juris_clean,
+        }
 
-    async with AuditContext("T18", params, "1.0") as _:
-        _incr_calls("T18")
-        phash = make_params_hash(params)
+        async with AuditContext("T18", params, "1.0") as _:
+            _incr_calls("T18")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T18", phash)
-        if cached:
-            return cached
+            cached = get_cached("T18", phash)
+            if cached:
+                _success = True
+                _cache_hit = True
+                return cached
 
         awards: list[dict] = []
         source_used = ""
@@ -298,6 +308,7 @@ async def search_contract_awards(
 
 {DISCLAIMER}"""
             _validate_canary(md)
+            _success = True
             return {
                 "keyword": kw_clean, "jurisdiction": juris_clean,
                 "count": 0, "awards": [],
@@ -339,7 +350,23 @@ async def search_contract_awards(
             **standard_response_fields("T18", phash, "1.0"),
         }
         set_cached("T18", phash, out, T18_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T18",
+            tool_name="search_contract_awards",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+            jurisdiction=jurisdiction,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -356,17 +383,24 @@ async def fetch_vendor_contract_history(
     """Use this to get the complete government contract history for a vendor.
     Provide the vendor or company name.
     Returns all contracts awarded with amounts, agencies, and dates."""
-    vendor_clean = vendor_name.strip()
-    juris_clean  = jurisdiction.strip().upper()
-    params = {"vendor_name": vendor_clean, "jurisdiction": juris_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        vendor_clean = vendor_name.strip()
+        juris_clean  = jurisdiction.strip().upper()
+        params = {"vendor_name": vendor_clean, "jurisdiction": juris_clean}
 
-    async with AuditContext("T18", params, "1.0") as _:
-        _incr_calls("T18")
-        phash = make_params_hash(params)
+        async with AuditContext("T18", params, "1.0") as _:
+            _incr_calls("T18")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T18", phash)
-        if cached:
-            return cached
+            cached = get_cached("T18", phash)
+            if cached:
+                _success = True
+                _cache_hit = True
+                return cached
 
         awards: list[dict] = []
         total_amount = 0.0
@@ -404,6 +438,7 @@ No contract history found for this vendor in {juris_clean}.
 
 {DISCLAIMER}"""
             _validate_canary(md)
+            _success = True
             return {
                 "vendor_name": vendor_clean, "jurisdiction": juris_clean,
                 "total_awards": 0, "total_amount": 0.0, "awards": [],
@@ -466,7 +501,22 @@ No contract history found for this vendor in {juris_clean}.
             **standard_response_fields("T18", phash, "1.0"),
         }
         set_cached("T18", phash, out, T18_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T18",
+            tool_name="fetch_vendor_contract_history",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -484,18 +534,25 @@ async def fetch_open_solicitations(
     """Use this to find currently open government procurement opportunities.
     Provide keywords describing what goods or services you are seeking.
     Returns active solicitations with deadlines and agency contact details."""
-    kw_clean     = keyword.strip()
-    agency_clean = agency.strip()
-    juris_clean  = jurisdiction.strip().upper()
-    params = {"keyword": kw_clean, "agency": agency_clean, "jurisdiction": juris_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        kw_clean     = keyword.strip()
+        agency_clean = agency.strip()
+        juris_clean  = jurisdiction.strip().upper()
+        params = {"keyword": kw_clean, "agency": agency_clean, "jurisdiction": juris_clean}
 
-    async with AuditContext("T18", params, "1.0") as _:
-        _incr_calls("T18")
-        phash = make_params_hash(params)
+        async with AuditContext("T18", params, "1.0") as _:
+            _incr_calls("T18")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T18", phash)
-        if cached:
-            return cached
+            cached = get_cached("T18", phash)
+            if cached:
+                _success = True
+                _cache_hit = True
+                return cached
 
         solicitations: list[dict] = []
         source_used = ""
@@ -636,6 +693,7 @@ No open solicitations found for this keyword.
 
 {DISCLAIMER}"""
             _validate_canary(md)
+            _success = True
             return {
                 "keyword": kw_clean, "jurisdiction": juris_clean,
                 "count": 0, "solicitations": [],
@@ -680,4 +738,19 @@ No open solicitations found for this keyword.
             **standard_response_fields("T18", phash, "1.0"),
         }
         set_cached("T18", phash, out, T18_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T18",
+            tool_name="fetch_open_solicitations",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))

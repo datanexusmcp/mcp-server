@@ -41,6 +41,7 @@ from starlette.responses import JSONResponse
 
 from datanexus.db_init import init_db
 from datanexus.core.prewarm import prewarm_cache
+from datanexus.analytics import track_server_start, shutdown as ph_shutdown
 
 # ── Sub-server imports (P01) ──────────────────────────────────────────────────
 from datanexus.tools.nonprofit  import nonprofit
@@ -104,7 +105,10 @@ async def _lifespan(server):
     # Pre-warm fires in the background — errors are silently swallowed inside
     # prewarm_cache so startup is never blocked by upstream API failures.
     asyncio.ensure_future(prewarm_cache())
+    tools = await server.list_tools()
+    asyncio.create_task(track_server_start(len(tools)))
     yield
+    ph_shutdown()
 
 
 main = FastMCP(

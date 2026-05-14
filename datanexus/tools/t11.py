@@ -24,6 +24,7 @@ Cache TTL: 86400 seconds (24 hours)
 Circuit breaker source IDs: "epo_ops", "patentsview", "wipo_patentscope"
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -52,6 +53,7 @@ from datanexus.core.circuit_breaker import (
 from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
+from datanexus.analytics import track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t11")
 
@@ -310,17 +312,24 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
     """Use this to look up a specific patent by its number.
     Provide the patent number and jurisdiction: US, EP, or WO.
     Returns filing details, claims summary, inventor, and current assignee."""
-    patent_clean = patent_number.strip().upper()
-    juris_clean  = jurisdiction.strip().upper()
-    params = {"patent_number": patent_clean, "jurisdiction": juris_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        patent_clean = patent_number.strip().upper()
+        juris_clean  = jurisdiction.strip().upper()
+        params = {"patent_number": patent_clean, "jurisdiction": juris_clean}
 
-    async with AuditContext("T11", params, "1.0") as _:
-        _incr_calls("T11")
-        phash = make_params_hash(params)
+        async with AuditContext("T11", params, "1.0") as _:
+            _incr_calls("T11")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T11", phash)
-        if cached:
-            return cached
+            cached = get_cached("T11", phash)
+            if cached:
+                _success = True
+                _cache_hit = True
+                return cached
 
         result: dict = {}
         source_used = ""
@@ -459,7 +468,23 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
             out["staleness_notices"] = staleness
 
         set_cached("T11", phash, out, T11_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T11",
+            tool_name="fetch_patent_by_number",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+            jurisdiction=jurisdiction,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -477,21 +502,28 @@ async def search_patents_by_keyword(
     """Use this to search for patents by keyword to find prior art before filing.
     Provide keywords and optional jurisdiction.
     Returns matching patents with numbers, titles, and filing dates."""
-    kw_clean    = keywords.strip()
-    juris_clean = jurisdiction.strip().upper()
-    params = {
-        "keywords":    kw_clean,
-        "jurisdiction": juris_clean,
-        "date_from":   date_from.strip(),
-    }
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        kw_clean    = keywords.strip()
+        juris_clean = jurisdiction.strip().upper()
+        params = {
+            "keywords":    kw_clean,
+            "jurisdiction": juris_clean,
+            "date_from":   date_from.strip(),
+        }
 
-    async with AuditContext("T11", params, "1.0") as _:
-        _incr_calls("T11")
-        phash = make_params_hash(params)
+        async with AuditContext("T11", params, "1.0") as _:
+            _incr_calls("T11")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T11", phash)
-        if cached:
-            return cached
+            cached = get_cached("T11", phash)
+            if cached:
+                _success = True
+                _cache_hit = True
+                return cached
 
         results: list[dict] = []
         source_used = ""
@@ -625,7 +657,22 @@ async def search_patents_by_keyword(
             out["staleness_notices"] = staleness
 
         set_cached("T11", phash_out, out, T11_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T11",
+            tool_name="search_patents_by_keyword",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -642,16 +689,23 @@ async def fetch_patent_citations(
     """Use this to get citation chains for a specific patent.
     Provide the patent number and jurisdiction.
     Returns patents that cite this one and patents this one cites."""
-    patent_clean = patent_number.strip().upper()
-    juris_clean  = jurisdiction.strip().upper()
-    params = {"patent_number": patent_clean, "jurisdiction": juris_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        patent_clean = patent_number.strip().upper()
+        juris_clean  = jurisdiction.strip().upper()
+        params = {"patent_number": patent_clean, "jurisdiction": juris_clean}
 
-    async with AuditContext("T11", params, "1.0") as _:
-        _incr_calls("T11")
-        phash = make_params_hash(params)
+        async with AuditContext("T11", params, "1.0") as _:
+            _incr_calls("T11")
+            phash = make_params_hash(params)
 
         cached = get_cached("T11", phash)
         if cached:
+            _success = True
+            _cache_hit = True
             return cached
 
         cited_by:  list[dict] = []
@@ -782,7 +836,22 @@ async def fetch_patent_citations(
             out["staleness_notices"] = staleness
 
         set_cached("T11", phash, out, T11_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T11",
+            tool_name="fetch_patent_citations",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -799,17 +868,24 @@ async def fetch_inventor_portfolio(
     """Use this to get all patents filed by a specific inventor.
     Provide the inventor name and optional assignee to narrow results.
     Returns the full portfolio with filing dates and current status."""
-    name_clean     = inventor_name.strip()
-    assignee_clean = assignee.strip()
-    params = {"inventor_name": name_clean, "assignee": assignee_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        name_clean     = inventor_name.strip()
+        assignee_clean = assignee.strip()
+        params = {"inventor_name": name_clean, "assignee": assignee_clean}
 
-    async with AuditContext("T11", params, "1.0") as _:
-        _incr_calls("T11")
-        phash = make_params_hash(params)
+        async with AuditContext("T11", params, "1.0") as _:
+            _incr_calls("T11")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T11", phash)
-        if cached:
-            return cached
+            cached = get_cached("T11", phash)
+            if cached:
+                _success = True
+                _cache_hit = True
+                return cached
 
         results: list[dict] = []
         source_used = ""
@@ -944,4 +1020,19 @@ async def fetch_inventor_portfolio(
             out["staleness_notices"] = staleness
 
         set_cached("T11", phash, out, T11_TTL)
+        _success = True
+        _cache_hit = bool(out.get("cache_hit", False))
         return out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T11",
+            tool_name="fetch_inventor_portfolio",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))

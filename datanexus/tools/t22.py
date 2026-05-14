@@ -24,10 +24,12 @@ Cache TTL: 86400 seconds (24 hours)
 Circuit breaker source IDs: "nppes", "finra", "sam_exclusions"
 """
 
+import asyncio
 import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -53,6 +55,7 @@ from datanexus.core.circuit_breaker import (
 from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
+from datanexus.analytics import track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t22")
 
@@ -131,102 +134,127 @@ async def fetch_npi_provider(npi_number: str) -> dict:
     """Use this to verify a US healthcare provider by their NPI number.
     Provide the 10-digit NPI number.
     Returns provider name, credential, speciality, and active status."""
-    npi_clean = npi_number.strip().replace("-", "")
-    params = {"npi_number": npi_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        npi_clean = npi_number.strip().replace("-", "")
+        params = {"npi_number": npi_clean}
 
-    async with AuditContext("T22", params, "1.0") as ctx:
-        _incr_calls("T22")
-        phash = make_params_hash(params)
+        async with AuditContext("T22", params, "1.0") as ctx:
+            _incr_calls("T22")
+            phash = make_params_hash(params)
 
-        # ── Cache check ───────────────────────────────────────────────────────
-        cached = get_cached("T22", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            log.info("t22.fetch_npi_provider cache_hit npi=%s", npi_clean)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
-            }
+            # ── Cache check ───────────────────────────────────────────────────────
+            cached = get_cached("T22", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                log.info("t22.fetch_npi_provider cache_hit npi=%s", npi_clean)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        # ── Circuit breaker ───────────────────────────────────────────────────
-        if is_tripped("nppes"):
-            archive = get_cached("T22", phash + "_archive")
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return {
+            # ── Circuit breaker ───────────────────────────────────────────────────
+            if is_tripped("nppes"):
+                archive = get_cached("T22", phash + "_archive")
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
+                return {
+                    "tool_id":         "T22",
+                    "data":            archive or {},
+                    "markdown_output": "NPPES Registry temporarily unavailable. "
+                                       "Serving archived data.",
+                    "staleness_notice": get_staleness_notice(
+                        "nppes",
+                        (archive or {}).get("data_as_of", "unknown"),
+                    ),
+                    "disclaimer":  DISCLAIMER,
+                    "cache_hit":   False,
+                    "sha256_hash": "",
+                    **standard_response_fields(ctx.query_hash, "", False),
+                }
+
+            # ── Live fetch ────────────────────────────────────────────────────────
+            try:
+                result = await _fetch_npi_by_number(npi_clean)
+            except httpx.TimeoutException:
+                record_failure_sync("nppes")
+                return error_response(
+                    ErrorCode.UPSTREAM_TIMEOUT,
+                    "NPPES Registry timed out. Try again shortly.",
+                    ctx.query_hash, 30, False,
+                )
+            except Exception:
+                record_failure_sync("nppes")
+                log.exception("t22.fetch_npi_provider unexpected error npi=%s", npi_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    "An internal error occurred. Please try again.",
+                    ctx.query_hash, 0, False,
+                )
+
+            if not result:
+                return error_response(
+                    ErrorCode.NOT_FOUND,
+                    f"NPI {npi_clean} not found in NPPES registry. "
+                    "Verify the NPI number and try again.",
+                    ctx.query_hash, 0, True,
+                )
+
+            raw_bytes    = json.dumps(result).encode()
+            payload_hash = compute_payload_hash(raw_bytes)
+            data_as_of   = datetime.now(timezone.utc).isoformat()
+            markdown     = _build_npi_markdown(result)
+            _validate_canary(markdown)
+
+            payload = {
                 "tool_id":         "T22",
-                "data":            archive or {},
-                "markdown_output": "NPPES Registry temporarily unavailable. "
-                                   "Serving archived data.",
-                "staleness_notice": get_staleness_notice(
-                    "nppes",
-                    (archive or {}).get("data_as_of", "unknown"),
-                ),
-                "disclaimer":  DISCLAIMER,
-                "cache_hit":   False,
-                "sha256_hash": "",
-                **standard_response_fields(ctx.query_hash, "", False),
+                "source_url":      NPPES_API,
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            result,
+                "markdown_output": markdown,
+                "disclaimer":      DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
             }
 
-        # ── Live fetch ────────────────────────────────────────────────────────
-        try:
-            result = await _fetch_npi_by_number(npi_clean)
-        except httpx.TimeoutException:
-            record_failure_sync("nppes")
-            return error_response(
-                ErrorCode.UPSTREAM_TIMEOUT,
-                "NPPES Registry timed out. Try again shortly.",
-                ctx.query_hash, 30, False,
-            )
-        except Exception:
-            record_failure_sync("nppes")
-            log.exception("t22.fetch_npi_provider unexpected error npi=%s", npi_clean)
-            return error_response(
-                ErrorCode.INTERNAL_ERROR,
-                "An internal error occurred. Please try again.",
-                ctx.query_hash, 0, False,
-            )
+            set_cached("T22", phash, payload, T22_TTL)
+            set_cached("T22", phash + "_archive", payload, T22_TTL * 4)
+            ctx.set_cache_hit(False)
+            record_success_sync("nppes")
 
-        if not result:
-            return error_response(
-                ErrorCode.NOT_FOUND,
-                f"NPI {npi_clean} not found in NPPES registry. "
-                "Verify the NPI number and try again.",
-                ctx.query_hash, 0, True,
-            )
-
-        raw_bytes    = json.dumps(result).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        data_as_of   = datetime.now(timezone.utc).isoformat()
-        markdown     = _build_npi_markdown(result)
-        _validate_canary(markdown)
-
-        payload = {
-            "tool_id":         "T22",
-            "source_url":      NPPES_API,
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            result,
-            "markdown_output": markdown,
-            "disclaimer":      DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        set_cached("T22", phash, payload, T22_TTL)
-        set_cached("T22", phash + "_archive", payload, T22_TTL * 4)
-        ctx.set_cache_hit(False)
-        record_success_sync("nppes")
-
-        log.info("t22.fetch_npi_provider ok npi=%s name=%s",
-                 npi_clean, result.get("display_name", ""))
-        return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            log.info("t22.fetch_npi_provider ok npi=%s name=%s",
+                     npi_clean, result.get("display_name", ""))
+            _out = {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T22",
+            tool_name="fetch_npi_provider",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -244,80 +272,105 @@ async def search_npi_by_name(
     """Use this to find a healthcare provider by name when you do not have their NPI.
     Provide name and optional state or speciality.
     Returns matching providers with NPI numbers for precise lookup."""
-    name_clean  = name.strip()
-    state_clean = state.strip().upper()
-    spec_clean  = speciality.strip()
-    params = {"name": name_clean, "state": state_clean, "speciality": spec_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        name_clean  = name.strip()
+        state_clean = state.strip().upper()
+        spec_clean  = speciality.strip()
+        params = {"name": name_clean, "state": state_clean, "speciality": spec_clean}
 
-    async with AuditContext("T22", params, "1.0") as ctx:
-        _incr_calls("T22")
-        phash = make_params_hash(params)
+        async with AuditContext("T22", params, "1.0") as ctx:
+            _incr_calls("T22")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T22", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    True,
-                ),
-                "cache_hit": True,
+            cached = get_cached("T22", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        True,
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
+
+            if is_tripped("nppes"):
+                _error_code = "CIRCUIT_OPEN"
+                return error_response(
+                    ErrorCode.CIRCUIT_OPEN,
+                    "NPPES Registry temporarily unavailable. Try again later.",
+                    ctx.query_hash, 300, False,
+                )
+
+            try:
+                results = await _search_npi(name_clean, state_clean, spec_clean, limit=10)
+            except httpx.TimeoutException:
+                record_failure_sync("nppes")
+                return error_response(
+                    ErrorCode.UPSTREAM_TIMEOUT,
+                    "NPPES Registry timed out. Try again shortly.",
+                    ctx.query_hash, 30, False,
+                )
+            except Exception:
+                record_failure_sync("nppes")
+                log.exception("t22.search_npi_by_name unexpected error name=%s", name_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    "An internal error occurred. Please try again.",
+                    ctx.query_hash, 0, False,
+                )
+
+            data_as_of   = datetime.now(timezone.utc).isoformat()
+            raw_bytes    = json.dumps(results).encode()
+            payload_hash = compute_payload_hash(raw_bytes)
+            markdown     = _build_search_markdown(results, name, state_clean, spec_clean)
+            _validate_canary(markdown)
+
+            payload = {
+                "tool_id":         "T22",
+                "source_url":      NPPES_API,
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            {"results": results, "count": len(results)},
+                "markdown_output": markdown,
+                "disclaimer":      DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
             }
 
-        if is_tripped("nppes"):
-            return error_response(
-                ErrorCode.CIRCUIT_OPEN,
-                "NPPES Registry temporarily unavailable. Try again later.",
-                ctx.query_hash, 300, False,
-            )
+            set_cached("T22", phash, payload, T22_TTL)
+            ctx.set_cache_hit(False)
+            record_success_sync("nppes")
 
-        try:
-            results = await _search_npi(name_clean, state_clean, spec_clean, limit=10)
-        except httpx.TimeoutException:
-            record_failure_sync("nppes")
-            return error_response(
-                ErrorCode.UPSTREAM_TIMEOUT,
-                "NPPES Registry timed out. Try again shortly.",
-                ctx.query_hash, 30, False,
-            )
-        except Exception:
-            record_failure_sync("nppes")
-            log.exception("t22.search_npi_by_name unexpected error name=%s", name_clean)
-            return error_response(
-                ErrorCode.INTERNAL_ERROR,
-                "An internal error occurred. Please try again.",
-                ctx.query_hash, 0, False,
-            )
-
-        data_as_of   = datetime.now(timezone.utc).isoformat()
-        raw_bytes    = json.dumps(results).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        markdown     = _build_search_markdown(results, name, state_clean, spec_clean)
-        _validate_canary(markdown)
-
-        payload = {
-            "tool_id":         "T22",
-            "source_url":      NPPES_API,
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            {"results": results, "count": len(results)},
-            "markdown_output": markdown,
-            "disclaimer":      DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        set_cached("T22", phash, payload, T22_TTL)
-        ctx.set_cache_hit(False)
-        record_success_sync("nppes")
-
-        log.info("t22.search_npi_by_name results=%d name=%s state=%s",
-                 len(results), name_clean, state_clean)
-        return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            log.info("t22.search_npi_by_name results=%d name=%s state=%s",
+                     len(results), name_clean, state_clean)
+            _out = {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T22",
+            tool_name="search_npi_by_name",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -331,132 +384,160 @@ async def fetch_finra_broker(crd_number: str) -> dict:
     """Use this to verify a financial broker or advisor is registered with FINRA.
     Provide their name or CRD number.
     Returns registration status, licences held, and disclosure history."""
-    crd_clean = crd_number.strip().lstrip("0") or "0"
-    params = {"crd_number": crd_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        crd_clean = crd_number.strip().lstrip("0") or "0"
+        params = {"crd_number": crd_clean}
 
-    async with AuditContext("T22", params, "1.0") as ctx:
-        _incr_calls("T22")
-        phash = make_params_hash(params)
+        async with AuditContext("T22", params, "1.0") as ctx:
+            _incr_calls("T22")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T22", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
-            }
+            cached = get_cached("T22", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        # ── FINRA key check — skip FINRA, return note if not configured ────────
-        if not _FINRA_KEY:
-            data_as_of   = datetime.now(timezone.utc).isoformat()
-            note = (
-                "FINRA_API_KEY not configured. "
-                "FINRA BrokerCheck data unavailable. "
-                "Use fetch_npi_provider() for NPI-registered healthcare professionals. "
-                "Contact your administrator to configure FINRA API access."
-            )
-            markdown = (
-                f"## FINRA BrokerCheck — CRD {crd_clean}\n\n"
-                f"**Source limitation:** {note}\n\n"
-                f"*{DISCLAIMER}*"
-            )
-            _validate_canary(markdown)
-            raw_bytes    = note.encode()
+            # ── FINRA key check — skip FINRA, return note if not configured ────────
+            if not _FINRA_KEY:
+                data_as_of   = datetime.now(timezone.utc).isoformat()
+                note = (
+                    "FINRA_API_KEY not configured. "
+                    "FINRA BrokerCheck data unavailable. "
+                    "Use fetch_npi_provider() for NPI-registered healthcare professionals. "
+                    "Contact your administrator to configure FINRA API access."
+                )
+                markdown = (
+                    f"## FINRA BrokerCheck — CRD {crd_clean}\n\n"
+                    f"**Source limitation:** {note}\n\n"
+                    f"*{DISCLAIMER}*"
+                )
+                _validate_canary(markdown)
+                raw_bytes    = note.encode()
+                payload_hash = compute_payload_hash(raw_bytes)
+
+                payload = {
+                    "tool_id":         "T22",
+                    "source_url":      "https://developer.finra.org",
+                    "fetch_timestamp": data_as_of,
+                    "cache_hit":       False,
+                    "staleness_notice": "FINRA_API_KEY not set — FINRA data unavailable.",
+                    "sha256_hash":     payload_hash,
+                    "data":            {"crd_number": crd_clean, "source_limitation": note},
+                    "markdown_output": markdown,
+                    "disclaimer":      DISCLAIMER,
+                    "data_as_of":      data_as_of,
+                    "ingest_healthy":  False,
+                }
+                set_cached("T22", phash, payload, T22_TTL)
+                ctx.set_cache_hit(False)
+                _out = {**payload, **standard_response_fields(ctx.query_hash, data_as_of, False)}
+                _success = True
+                _cache_hit = bool(_out.get("cache_hit", False))
+                return _out
+
+            # ── Circuit breaker ───────────────────────────────────────────────────
+            if is_tripped("finra"):
+                archive = get_cached("T22", phash + "_archive")
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
+                return {
+                    "tool_id":         "T22",
+                    "data":            archive or {},
+                    "markdown_output": "FINRA BrokerCheck temporarily unavailable. "
+                                       "Serving archived data.",
+                    "staleness_notice": get_staleness_notice(
+                        "finra",
+                        (archive or {}).get("data_as_of", "unknown"),
+                    ),
+                    "disclaimer":  DISCLAIMER,
+                    "cache_hit":   False,
+                    "sha256_hash": "",
+                    **standard_response_fields(ctx.query_hash, "", False),
+                }
+
+            try:
+                result = await _fetch_finra_crd(crd_clean)
+            except httpx.TimeoutException:
+                record_failure_sync("finra")
+                return error_response(
+                    ErrorCode.UPSTREAM_TIMEOUT,
+                    "FINRA BrokerCheck timed out. Try again shortly.",
+                    ctx.query_hash, 30, False,
+                )
+            except Exception:
+                record_failure_sync("finra")
+                log.exception("t22.fetch_finra_broker unexpected error crd=%s", crd_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    "An internal error occurred. Please try again.",
+                    ctx.query_hash, 0, False,
+                )
+
+            if not result:
+                return error_response(
+                    ErrorCode.NOT_FOUND,
+                    f"CRD {crd_clean} not found in FINRA BrokerCheck.",
+                    ctx.query_hash, 0, True,
+                )
+
+            raw_bytes    = json.dumps(result).encode()
             payload_hash = compute_payload_hash(raw_bytes)
+            data_as_of   = datetime.now(timezone.utc).isoformat()
+            markdown     = _build_finra_markdown(result)
+            _validate_canary(markdown)
 
             payload = {
                 "tool_id":         "T22",
-                "source_url":      "https://developer.finra.org",
+                "source_url":      "https://api.finra.org",
                 "fetch_timestamp": data_as_of,
                 "cache_hit":       False,
-                "staleness_notice": "FINRA_API_KEY not set — FINRA data unavailable.",
+                "staleness_notice": None,
                 "sha256_hash":     payload_hash,
-                "data":            {"crd_number": crd_clean, "source_limitation": note},
+                "data":            result,
                 "markdown_output": markdown,
                 "disclaimer":      DISCLAIMER,
                 "data_as_of":      data_as_of,
-                "ingest_healthy":  False,
+                "ingest_healthy":  True,
             }
+
             set_cached("T22", phash, payload, T22_TTL)
+            set_cached("T22", phash + "_archive", payload, T22_TTL * 4)
             ctx.set_cache_hit(False)
-            return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, False)}
+            record_success_sync("finra")
 
-        # ── Circuit breaker ───────────────────────────────────────────────────
-        if is_tripped("finra"):
-            archive = get_cached("T22", phash + "_archive")
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return {
-                "tool_id":         "T22",
-                "data":            archive or {},
-                "markdown_output": "FINRA BrokerCheck temporarily unavailable. "
-                                   "Serving archived data.",
-                "staleness_notice": get_staleness_notice(
-                    "finra",
-                    (archive or {}).get("data_as_of", "unknown"),
-                ),
-                "disclaimer":  DISCLAIMER,
-                "cache_hit":   False,
-                "sha256_hash": "",
-                **standard_response_fields(ctx.query_hash, "", False),
-            }
-
-        try:
-            result = await _fetch_finra_crd(crd_clean)
-        except httpx.TimeoutException:
-            record_failure_sync("finra")
-            return error_response(
-                ErrorCode.UPSTREAM_TIMEOUT,
-                "FINRA BrokerCheck timed out. Try again shortly.",
-                ctx.query_hash, 30, False,
-            )
-        except Exception:
-            record_failure_sync("finra")
-            log.exception("t22.fetch_finra_broker unexpected error crd=%s", crd_clean)
-            return error_response(
-                ErrorCode.INTERNAL_ERROR,
-                "An internal error occurred. Please try again.",
-                ctx.query_hash, 0, False,
-            )
-
-        if not result:
-            return error_response(
-                ErrorCode.NOT_FOUND,
-                f"CRD {crd_clean} not found in FINRA BrokerCheck.",
-                ctx.query_hash, 0, True,
-            )
-
-        raw_bytes    = json.dumps(result).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        data_as_of   = datetime.now(timezone.utc).isoformat()
-        markdown     = _build_finra_markdown(result)
-        _validate_canary(markdown)
-
-        payload = {
-            "tool_id":         "T22",
-            "source_url":      "https://api.finra.org",
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            result,
-            "markdown_output": markdown,
-            "disclaimer":      DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        set_cached("T22", phash, payload, T22_TTL)
-        set_cached("T22", phash + "_archive", payload, T22_TTL * 4)
-        ctx.set_cache_hit(False)
-        record_success_sync("finra")
-
-        log.info("t22.fetch_finra_broker ok crd=%s", crd_clean)
-        return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            log.info("t22.fetch_finra_broker ok crd=%s", crd_clean)
+            _out = {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T22",
+            tool_name="fetch_finra_broker",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -470,90 +551,115 @@ async def check_sam_exclusion(name_or_ein: str) -> dict:
     """Use this to check whether a person or company is excluded from US federal contracting.
     Provide their name or EIN.
     Returns whether they appear on the SAM.gov exclusions list."""
-    query_clean = name_or_ein.strip()
-    params = {"name_or_ein": query_clean}
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        query_clean = name_or_ein.strip()
+        params = {"name_or_ein": query_clean}
 
-    async with AuditContext("T22", params, "1.0") as ctx:
-        _incr_calls("T22")
-        phash = make_params_hash(params)
+        async with AuditContext("T22", params, "1.0") as ctx:
+            _incr_calls("T22")
+            phash = make_params_hash(params)
 
-        cached = get_cached("T22", phash)
-        if cached:
-            ctx.set_cache_hit(True)
-            return {
-                **cached,
-                **standard_response_fields(
-                    ctx.query_hash,
-                    cached.get("data_as_of", ""),
-                    cached.get("ingest_healthy", True),
-                ),
-                "cache_hit": True,
-            }
+            cached = get_cached("T22", phash)
+            if cached:
+                ctx.set_cache_hit(True)
+                _out = {
+                    **cached,
+                    **standard_response_fields(
+                        ctx.query_hash,
+                        cached.get("data_as_of", ""),
+                        cached.get("ingest_healthy", True),
+                    ),
+                    "cache_hit": True,
+                }
+                _success = True
+                _cache_hit = True
+                return _out
 
-        if is_tripped("sam_exclusions"):
-            archive = get_cached("T22", phash + "_archive")
-            ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-            return {
+            if is_tripped("sam_exclusions"):
+                archive = get_cached("T22", phash + "_archive")
+                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                _error_code = "CIRCUIT_OPEN"
+                return {
+                    "tool_id":         "T22",
+                    "data":            archive or {},
+                    "markdown_output": "SAM.gov temporarily unavailable. "
+                                       "Serving archived data.",
+                    "staleness_notice": get_staleness_notice(
+                        "sam_exclusions",
+                        (archive or {}).get("data_as_of", "unknown"),
+                    ),
+                    "disclaimer":  DISCLAIMER,
+                    "cache_hit":   False,
+                    "sha256_hash": "",
+                    **standard_response_fields(ctx.query_hash, "", False),
+                }
+
+            try:
+                result = await _check_sam_exclusion_live(query_clean)
+            except httpx.TimeoutException:
+                record_failure_sync("sam_exclusions")
+                return error_response(
+                    ErrorCode.UPSTREAM_TIMEOUT,
+                    "SAM.gov timed out. Try again shortly.",
+                    ctx.query_hash, 30, False,
+                )
+            except Exception:
+                record_failure_sync("sam_exclusions")
+                log.exception("t22.check_sam_exclusion unexpected error query=%s", query_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    "An internal error occurred. Please try again.",
+                    ctx.query_hash, 0, False,
+                )
+
+            data_as_of   = datetime.now(timezone.utc).isoformat()
+            raw_bytes    = json.dumps(result).encode()
+            payload_hash = compute_payload_hash(raw_bytes)
+            markdown     = _build_sam_exclusion_markdown(result, query_clean)
+            _validate_canary(markdown)
+
+            payload = {
                 "tool_id":         "T22",
-                "data":            archive or {},
-                "markdown_output": "SAM.gov temporarily unavailable. "
-                                   "Serving archived data.",
-                "staleness_notice": get_staleness_notice(
-                    "sam_exclusions",
-                    (archive or {}).get("data_as_of", "unknown"),
-                ),
-                "disclaimer":  DISCLAIMER,
-                "cache_hit":   False,
-                "sha256_hash": "",
-                **standard_response_fields(ctx.query_hash, "", False),
+                "source_url":      SAM_EXCL_API,
+                "fetch_timestamp": data_as_of,
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     payload_hash,
+                "data":            result,
+                "markdown_output": markdown,
+                "disclaimer":      DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
             }
 
-        try:
-            result = await _check_sam_exclusion_live(query_clean)
-        except httpx.TimeoutException:
-            record_failure_sync("sam_exclusions")
-            return error_response(
-                ErrorCode.UPSTREAM_TIMEOUT,
-                "SAM.gov timed out. Try again shortly.",
-                ctx.query_hash, 30, False,
-            )
-        except Exception:
-            record_failure_sync("sam_exclusions")
-            log.exception("t22.check_sam_exclusion unexpected error query=%s", query_clean)
-            return error_response(
-                ErrorCode.INTERNAL_ERROR,
-                "An internal error occurred. Please try again.",
-                ctx.query_hash, 0, False,
-            )
+            set_cached("T22", phash, payload, T22_TTL)
+            set_cached("T22", phash + "_archive", payload, T22_TTL * 4)
+            ctx.set_cache_hit(False)
+            record_success_sync("sam_exclusions")
 
-        data_as_of   = datetime.now(timezone.utc).isoformat()
-        raw_bytes    = json.dumps(result).encode()
-        payload_hash = compute_payload_hash(raw_bytes)
-        markdown     = _build_sam_exclusion_markdown(result, query_clean)
-        _validate_canary(markdown)
-
-        payload = {
-            "tool_id":         "T22",
-            "source_url":      SAM_EXCL_API,
-            "fetch_timestamp": data_as_of,
-            "cache_hit":       False,
-            "staleness_notice": None,
-            "sha256_hash":     payload_hash,
-            "data":            result,
-            "markdown_output": markdown,
-            "disclaimer":      DISCLAIMER,
-            "data_as_of":      data_as_of,
-            "ingest_healthy":  True,
-        }
-
-        set_cached("T22", phash, payload, T22_TTL)
-        set_cached("T22", phash + "_archive", payload, T22_TTL * 4)
-        ctx.set_cache_hit(False)
-        record_success_sync("sam_exclusions")
-
-        log.info("t22.check_sam_exclusion ok query=%s found=%s",
-                 query_clean, result.get("exclusion_found", False))
-        return {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            log.info("t22.check_sam_exclusion ok query=%s found=%s",
+                     query_clean, result.get("exclusion_found", False))
+            _out = {**payload, **standard_response_fields(ctx.query_hash, data_as_of, True)}
+            _success = True
+            _cache_hit = bool(_out.get("cache_hit", False))
+            return _out
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T22",
+            tool_name="check_sam_exclusion",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

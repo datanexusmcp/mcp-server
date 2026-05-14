@@ -9,3 +9,4 @@ fastapi>=0.111.0
 click>=8.0.0
 fakeredis>=2.35.1
 anthropic>=0.40.0
+posthog>=3.0.0
