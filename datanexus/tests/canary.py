@@ -146,7 +146,7 @@ async def canary_nist_nvd(client: httpx.AsyncClient) -> dict:
 
 
 async def canary_deps_dev(client: httpx.AsyncClient) -> dict:
-    """T10 — deps.dev: fetch requests/PyPI package, expect defaultVersion."""
+    """T10 — deps.dev: fetch requests/PyPI package, expect versions list."""
     source, tool_id = "deps_dev", "T10"
     t0 = time.monotonic()
     try:
@@ -157,10 +157,11 @@ async def canary_deps_dev(client: httpx.AsyncClient) -> dict:
         lat = int((time.monotonic() - t0) * 1000)
         resp.raise_for_status()
         data = resp.json()
-        if "defaultVersion" in data:
+        versions = data.get("versions", [])
+        if versions:
             return _result(source, tool_id, "PASS", lat,
-                           f"deps.dev defaultVersion={data['defaultVersion']}")
-        return _result(source, tool_id, "FAIL", lat, "deps.dev defaultVersion present",
+                           f"deps.dev returned {len(versions)} version(s)")
+        return _result(source, tool_id, "FAIL", lat, "deps.dev versions list non-empty",
                        error=f"Keys: {list(data.keys())}")
     except Exception as exc:
         lat = int((time.monotonic() - t0) * 1000)
@@ -219,7 +220,7 @@ async def canary_finra(client: httpx.AsyncClient) -> dict:
 
 
 async def canary_sam_gov(client: httpx.AsyncClient) -> dict:
-    """T22 — SAM.gov exclusions: query totalRecords field present."""
+    """T22 — SAM.gov entity API: name search, expect totalRecords present."""
     source, tool_id = "sam_gov", "T22"
     key = os.environ.get("SAM_GOV_API_KEY", "")
     if not key:
@@ -230,9 +231,8 @@ async def canary_sam_gov(client: httpx.AsyncClient) -> dict:
             "https://api.sam.gov/entity-information/v3/entities",
             params={
                 "api_key": key,
-                "exclusionStatusFlag": "Y",
-                "samRegistered": "No",
-                "pageSize": 1,
+                "legalBusinessName": "IBM",
+                "includeSections": "entityRegistration",
             },
             timeout=httpx.Timeout(20.0, connect=8.0),
         )
@@ -272,14 +272,16 @@ async def canary_iana_rdap(client: httpx.AsyncClient) -> dict:
 
 
 async def canary_crt_sh(client: httpx.AsyncClient) -> dict:
-    """T07 — crt.sh: query example.com certs, expect non-empty JSON array."""
+    """T07 — crt.sh: query our own domain (fewer results, faster), expect JSON array."""
     source, tool_id = "crt_sh", "T07"
     t0 = time.monotonic()
     try:
+        # Use own domain — returns small result set; example.com returns thousands
+        # and times out under load. Timeout 45s; DEGRADED if >20s.
         resp = await client.get(
             "https://crt.sh/",
-            params={"q": "example.com", "output": "json"},
-            timeout=httpx.Timeout(30.0, connect=10.0),  # crt.sh is slow
+            params={"q": "datanexusmcp.com", "output": "json"},
+            timeout=httpx.Timeout(45.0, connect=10.0),
         )
         lat = int((time.monotonic() - t0) * 1000)
         resp.raise_for_status()
@@ -287,9 +289,13 @@ async def canary_crt_sh(client: httpx.AsyncClient) -> dict:
         if isinstance(data, list) and len(data) > 0:
             status = "PASS" if lat < 20000 else "DEGRADED"
             return _result(source, tool_id, status, lat,
-                           f"crt.sh returned {len(data)} cert(s)")
+                           f"crt.sh returned {len(data)} cert(s) for datanexusmcp.com")
         return _result(source, tool_id, "FAIL", lat, "crt.sh non-empty JSON array",
                        error=f"Got {type(data).__name__} with {len(data) if isinstance(data, list) else '?'} items")
+    except httpx.TimeoutException as exc:
+        lat = int((time.monotonic() - t0) * 1000)
+        return _result(source, tool_id, "FAIL", lat, "crt.sh query within 45s",
+                       error=f"Timeout after {lat}ms: {exc!r}")
     except Exception as exc:
         lat = int((time.monotonic() - t0) * 1000)
         return _result(source, tool_id, "FAIL", lat, "crt.sh query success", error=str(exc))
@@ -416,16 +422,22 @@ async def canary_usaspending(client: httpx.AsyncClient) -> dict:
 
 
 async def canary_regulations_gov(client: httpx.AsyncClient) -> dict:
-    """T19 — Regulations.gov: fetch 1 document, expect data array."""
+    """T19 — Regulations.gov: fetch 5 EPA documents, expect data array."""
     source, tool_id = "regulations_gov", "T19"
     key = os.environ.get("REGULATIONS_GOV_KEY", "")
     if not key:
         return _skip(source, tool_id, "REGULATIONS_GOV_KEY not set")
     t0 = time.monotonic()
     try:
+        # pageSize must be >= 5; filter[agencyId] required to avoid 400
         resp = await client.get(
             "https://api.regulations.gov/v4/documents",
-            params={"api_key": key, "limit": 1},
+            params={
+                "api_key":            key,
+                "filter[agencyId]":   "EPA",
+                "page[number]":       1,
+                "page[size]":         5,
+            },
             timeout=httpx.Timeout(15.0, connect=5.0),
         )
         lat = int((time.monotonic() - t0) * 1000)
