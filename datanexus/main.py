@@ -72,20 +72,12 @@ async def report_feedback(
     comment: str = "",
     missing_fields: _Optional[_List[str]] = None,
 ) -> dict:
-    """
-    Report a data quality issue with any DataNexus tool response. Call this after receiving a result that appears wrong, outdated, or incomplete — for example: an EIN returns the wrong organisation, a CVE severity looks incorrect, or a field expected in the response is absent.
-    Parameters: tool_id (required) — 'T04' (nonprofit) or 'T10' (vulnerability), the tool that returned the suspect result. query_hash (required) — the query_hash field from that tool response. signal (required) — one of: incorrect_data, missing_field, stale_data, not_useful, wrong_entity. comment (optional) — description of what appears wrong (max 200 chars).
-    Returns: {'status': 'recorded'} — always. Response time: <200 ms. No auth required. Token-efficient.
-    """
+    """Report a data quality issue with a specific DataNexus tool response. Read-only call. Records feedback for human and AI review. tool_id: Tool identifier e.g. T04. Required. query_hash: Hash from the response being reported. Required. Found in the query_hash field of any response. signal: One of incorrect_data, missing_field, stale_data, not_useful, wrong_entity, or data_quality. Required. comment: Description of the issue. Optional. Max 500 characters. missing_fields: List of field names that are absent or wrong. Optional. Call this after receiving a result that appears wrong, outdated, or incomplete. Do not call this to report network errors — those resolve on retry."""
     return await _real_report_feedback(tool_id, query_hash, signal, comment, missing_fields)
 
 
 async def report_mcpize_link(tool_id: str) -> dict:
-    """
-    Check whether a DataNexus tool requires a paid subscription and retrieve the upgrade URL if so. Call this when a user asks about pricing, access limits, or subscription status.
-    Parameters: tool_id (required) — 'T04' (nonprofit data) or 'T10' (vulnerability intelligence).
-    Returns: status 'free' — tool is currently free, no action needed; or upgrade_url — subscription link if the free window has ended. Backed by DataNexus billing system. Response time: <200 ms. No auth required. Token-efficient.
-    """
+    """Check subscription status and access tier for DataNexus tools. Read-only. No side effects. No parameters required. Returns free or paid status, access tier, and upgrade URL during the free window. Call this when a user asks about pricing, subscription status, or access limits. Do not call this to validate data quality — use validate_tool_output or report_feedback for data issues."""
     return _real_report_mcpize_link(tool_id)
 
 
