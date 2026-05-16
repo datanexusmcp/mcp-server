@@ -137,6 +137,30 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   .feed-ts { color: var(--muted); font-size: 11px; margin-left: auto; flex-shrink: 0; }
   .feed-empty { color: var(--muted); font-size: 13px; padding: 12px 0; text-align: center; }
 
+  /* ── upstream health ── */
+  .upstream-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+                   gap: 10px; }
+  .upstream-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+                   background: var(--bg); border-radius: 6px; border: 1px solid var(--border); }
+  .upstream-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .upstream-dot.pass     { background: var(--green); }
+  .upstream-dot.fail     { background: var(--red); }
+  .upstream-dot.degraded { background: var(--amber); }
+  .upstream-dot.skip     { background: var(--muted); }
+  .upstream-dot.unknown  { background: var(--border); }
+  .upstream-info { flex: 1; min-width: 0; }
+  .upstream-name { font-size: 12px; font-weight: 600; font-family: var(--mono);
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .upstream-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .upstream-badge { font-size: 10px; font-weight: 600; letter-spacing: .5px;
+                    padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+  .upstream-badge.pass     { background: rgba(34,197,94,.15); color: var(--green); }
+  .upstream-badge.fail     { background: rgba(239,68,68,.15);  color: var(--red); }
+  .upstream-badge.degraded { background: rgba(245,158,11,.15); color: var(--amber); }
+  .upstream-badge.skip     { background: rgba(136,146,164,.12); color: var(--muted); }
+  .upstream-badge.unknown  { background: var(--border); color: var(--muted); }
+  .upstream-empty { color: var(--muted); font-size: 13px; padding: 12px 0; text-align: center; }
+
   /* ── misc ── */
   .spinner { display: inline-block; width: 14px; height: 14px;
              border: 2px solid var(--border); border-top-color: var(--accent);
@@ -214,6 +238,14 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
   </section>
 
+  <!-- Upstream Health -->
+  <section>
+    <h2>Upstream Health <span style="font-weight:400;color:var(--muted)" id="canary-checked-at"></span></h2>
+    <div class="upstream-grid" id="upstream-grid">
+      <div class="upstream-empty"><span class="spinner"></span></div>
+    </div>
+  </section>
+
 </main>
 <script>
 const REFRESH_MS = 15_000;
@@ -260,6 +292,32 @@ function renderTools(tools) {
   }).join('');
 }
 
+function renderUpstreamHealth(items) {
+  const el = document.getElementById('upstream-grid');
+  if (!items || !items.length) {
+    el.innerHTML = '<div class="upstream-empty">No canary data yet — canary runs hourly.</div>';
+    return;
+  }
+  // Show most-recent checked_at across all items
+  const latest = items.reduce((a, b) => (a.checked_at > b.checked_at ? a : b), items[0]);
+  const ts = latest.checked_at ? latest.checked_at.replace('T', ' ').slice(0, 19) + 'Z' : '';
+  document.getElementById('canary-checked-at').textContent = ts ? '— last run ' + ts : '';
+
+  el.innerHTML = items.map(item => {
+    const cls  = (item.status || 'unknown').toLowerCase();
+    const lat  = item.latency_ms > 0 ? item.latency_ms + 'ms' : '';
+    const err  = item.error ? ' · ' + item.error.slice(0, 60) : '';
+    return `<div class="upstream-item">
+      <div class="upstream-dot ${cls}"></div>
+      <div class="upstream-info">
+        <div class="upstream-name">${item.source}</div>
+        <div class="upstream-meta">${item.tool_id}${lat ? ' · ' + lat : ''}${err}</div>
+      </div>
+      <span class="upstream-badge ${cls}">${item.status}</span>
+    </div>`;
+  }).join('');
+}
+
 function renderFeed(entries) {
   const el = document.getElementById('feed-list');
   if (!entries || !entries.length) {
@@ -298,9 +356,10 @@ async function refresh() {
     // Date label
     document.getElementById('date-label').textContent = d.date || '';
 
-    // Table + feed
+    // Table + feed + upstream health
     renderTools(d.tools || []);
     renderFeed(d.feed || []);
+    renderUpstreamHealth(d.upstream_health || []);
 
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19) + 'Z';
     document.getElementById('last-updated').textContent = 'updated ' + now;

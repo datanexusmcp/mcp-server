@@ -171,6 +171,7 @@ async def get_all_metrics(r) -> dict[str, Any]:
     repeat_sessions   = await get_repeat_sessions(r)
     grandfathered     = await get_grandfathered_count()
     feed              = await get_feed(r)
+    upstream_health   = await get_upstream_health(r)
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -185,5 +186,42 @@ async def get_all_metrics(r) -> dict[str, Any]:
             "cache_misses":      miss_sum,
             "grandfathered_sessions": grandfathered,
         },
-        "feed": feed,
+        "feed":            feed,
+        "upstream_health": upstream_health,
     }
+
+
+async def get_upstream_health(r) -> list[dict]:
+    """
+    Read canary results from Redis (datanexus:canary:*).
+    Returns a list of dicts sorted by tool_id then source name.
+    Returns empty list if Redis is unavailable or no canary data exists.
+    """
+    if r is None:
+        return []
+    try:
+        keys = await r.keys("datanexus:canary:*")
+        if not keys:
+            return []
+        results = []
+        for key in sorted(keys):
+            data = await r.hgetall(key)
+            if data:
+                source = key.split("datanexus:canary:")[-1]
+                results.append({
+                    "source":     source,
+                    "tool_id":    data.get("tool_id", "?"),
+                    "status":     data.get("status", "UNKNOWN"),
+                    "latency_ms": int(data.get("latency_ms", 0)),
+                    "checked_at": data.get("checked_at", ""),
+                    "check":      data.get("check", ""),
+                    "error":      data.get("error", ""),
+                })
+        results.sort(key=lambda x: (x["tool_id"], x["source"]))
+        return results
+    except Exception as exc:
+        import logging
+        logging.getLogger("datanexus.ops.metrics").warning(
+            "upstream_health read failed: %s", exc
+        )
+        return []

@@ -530,11 +530,13 @@ async def search_patents_by_keyword(
             token = _get_epo_token()
             if token:
                 try:
-                    cql_parts = [f'txt="{kw_clean}"']
+                    # EPO OPS CQL: field = "value" (spaces required; bare = without
+                    # spaces causes HTTP 400). Use 'ti' (title) for precision.
+                    cql_parts = [f'ti = "{kw_clean}"']
                     if juris_clean == "WO":
-                        cql_parts.append('pn=WO')
+                        cql_parts.append('pn = WO')
                     if date_from:
-                        cql_parts.append(f'pd>={date_from.replace("-", "")}')
+                        cql_parts.append(f'pd >= {date_from.replace("-", "")}')
                     cql = " AND ".join(cql_parts)
                     url = f"{EPO_OPS_URL}/published-data/search/biblio"
                     async with httpx.AsyncClient(
@@ -888,9 +890,10 @@ async def fetch_inventor_portfolio(
             token = _get_epo_token()
             if token:
                 try:
-                    cql = f'in="{name_clean}"'
+                    # EPO OPS CQL: spaces around = are required
+                    cql = f'in = "{name_clean}"'
                     if assignee_clean:
-                        cql += f' AND pa="{assignee_clean}"'
+                        cql += f' AND pa = "{assignee_clean}"'
                     url = f"{EPO_OPS_URL}/published-data/search/biblio"
                     async with httpx.AsyncClient(
                         timeout=_HTTP_TIMEOUT, headers=_HEADERS

@@ -687,7 +687,7 @@ def _normalise_rdap(raw: dict, domain: str) -> dict:
 
 async def _fetch_crt_sh(query: str, limit: int = 10) -> list:
     async with httpx.AsyncClient(
-        timeout=httpx.Timeout(20.0, connect=5.0),
+        timeout=httpx.Timeout(30.0, connect=10.0),  # crt.sh can be slow; was 20s
         headers=_HEADERS,
         follow_redirects=True,
     ) as client:
