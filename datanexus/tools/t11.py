@@ -524,14 +524,13 @@ async def search_patents_by_keyword(
             token = _get_epo_token()
             if token:
                 try:
-                    # EPO OPS CQL: field = "value" (spaces required; bare = without
-                    # spaces causes HTTP 400). Use 'ti' (title) for precision.
-                    cql_parts = [f'ti = "{kw_clean}"']
-                    if juris_clean == "WO":
-                        cql_parts.append('pn = WO')
+                    # EPO OPS CQL: use 'ta all "phrase"' (title AND abstract,
+                    # contains all words).  'ti = "phrase"' causes HTTP 404 for
+                    # multi-word queries because = is strict field equality.
+                    cql = f'ta all "{kw_clean}"'
                     if date_from:
-                        cql_parts.append(f'pd >= {date_from.replace("-", "")}')
-                    cql = " AND ".join(cql_parts)
+                        # EPO date format: YYYYMMDD (no hyphens)
+                        cql += f' AND pd >= {date_from.replace("-", "")}'
                     url = f"{EPO_OPS_URL}/published-data/search/biblio"
                     async with httpx.AsyncClient(
                         timeout=_HTTP_TIMEOUT, headers=_HEADERS

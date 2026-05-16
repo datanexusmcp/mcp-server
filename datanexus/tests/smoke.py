@@ -591,6 +591,30 @@ async def smoke_search_patents_by_keyword() -> dict:
         return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
 
 
+async def smoke_search_patents_companion_animal() -> dict:
+    """Regression test for P15-4: multi-word EPO query that returned 404 with ti= syntax."""
+    tool_name, tool_id = "search_patents_companion_animal", "T11"
+    try:
+        from datanexus.tools.t11 import search_patents_by_keyword
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            search_patents_by_keyword(
+                keywords="companion animal vaccine", jurisdiction="EP", date_from=""
+            ),
+            timeout=TIMEOUT_S,
+        )
+        # Results at top level (T11 returns results, count directly)
+        results = d.get("results", [])
+        count   = d.get("count", 0)
+        has_results = len(results) > 0 or (isinstance(count, (int, float)) and count > 0)
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_output",  bool(results) or bool(count) or bool(d.get("markdown"))),
+            ("has_results", has_results),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
 async def smoke_fetch_patent_citations() -> dict:
     tool_name, tool_id = "fetch_patent_citations", "T11"
     try:
@@ -948,9 +972,10 @@ _SMOKE_COROUTINES = [
     smoke_fetch_ssl_certificate_chain,
     smoke_fetch_dns_records,
     smoke_fetch_domain_history,
-    # T11 — Legal (4)
+    # T11 — Legal (5: 4 core + 1 regression)
     smoke_fetch_patent_by_number,
     smoke_search_patents_by_keyword,
+    smoke_search_patents_companion_animal,   # P15-4 regression: multi-word EPO query
     smoke_fetch_patent_citations,
     smoke_fetch_inventor_portfolio,
     # T18 — GovCon (3)
@@ -968,7 +993,7 @@ _SMOKE_COROUTINES = [
     smoke_report_mcpize_link,
 ]
 
-assert len(_SMOKE_COROUTINES) == 30, f"Expected 30 smoke tests, got {len(_SMOKE_COROUTINES)}"
+assert len(_SMOKE_COROUTINES) == 31, f"Expected 31 smoke tests, got {len(_SMOKE_COROUTINES)}"
 
 
 async def run_all() -> list:
