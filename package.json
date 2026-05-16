@@ -1,6 +1,6 @@
 {
   "name": "@datanexusmcp/mcp-server",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "description": "DataNexus MCP — AI-Ready public data intelligence. 30 tools in 7 focused sub-servers: nonprofit, security, compliance, domain, legal, GovCon, and regulatory. Use search_datanexus_tools to find the right tool. No API key required for most tools.",
   "keywords": [
     "mcp",
