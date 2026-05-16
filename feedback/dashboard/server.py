@@ -358,6 +358,196 @@ def get_conversion_stats() -> dict[str, Any]:
     }
 
 
+# ── Smoke & Canary data helpers ───────────────────────────────────────────────
+
+def _time_ago(iso_ts: str) -> str:
+    """Convert an ISO timestamp to a human-readable relative string."""
+    if not iso_ts:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+        secs = int((datetime.now(timezone.utc) - dt).total_seconds())
+        if secs < 60:
+            return "just now"
+        if secs < 3600:
+            return f"{secs // 60}m ago"
+        if secs < 86400:
+            return f"{secs // 3600}h ago"
+        return f"{secs // 86400}d ago"
+    except Exception:
+        return iso_ts[:16]
+
+
+def _get_smoke_data() -> list[dict]:
+    """
+    Read all datanexus:smoke:* hashes from Redis.
+    Returns a list sorted by (tool_id, tool_name).
+    """
+    r = _get_redis()
+    if r is None:
+        return []
+    results: list[dict] = []
+    try:
+        cursor = 0
+        keys: list[str] = []
+        while True:
+            cursor, batch = r.scan(cursor, match="datanexus:smoke:*", count=200)
+            keys.extend(batch)
+            if cursor == 0:
+                break
+        for key in keys:
+            data = r.hgetall(key)
+            if data:
+                tool_name = key.split("datanexus:smoke:", 1)[-1]
+                results.append({
+                    "tool":          tool_name,
+                    "tool_id":       data.get("tool_id", "?"),
+                    "status":        data.get("status", "UNKNOWN"),
+                    "latency_ms":    int(data.get("latency_ms", 0)),
+                    "checked_at":    data.get("checked_at", ""),
+                    "ingest_healthy": data.get("ingest_healthy", ""),
+                    "checks_passed": data.get("checks_passed", "").split(",") if data.get("checks_passed") else [],
+                    "checks_failed": data.get("checks_failed", "").split(",") if data.get("checks_failed") else [],
+                    "error":         data.get("error", ""),
+                })
+        results.sort(key=lambda x: (x["tool_id"], x["tool"]))
+    except Exception as exc:
+        log.warning("_get_smoke_data: Redis error — %s", exc)
+    return results
+
+
+def _get_canary_data() -> list[dict]:
+    """
+    Read all datanexus:canary:* hashes from Redis.
+    Returns a list sorted by (tool_id, source).
+    """
+    r = _get_redis()
+    if r is None:
+        return []
+    results: list[dict] = []
+    try:
+        cursor = 0
+        keys: list[str] = []
+        while True:
+            cursor, batch = r.scan(cursor, match="datanexus:canary:*", count=200)
+            keys.extend(batch)
+            if cursor == 0:
+                break
+        for key in keys:
+            data = r.hgetall(key)
+            if data:
+                source = key.split("datanexus:canary:", 1)[-1]
+                results.append({
+                    "source":     source,
+                    "tool_id":    data.get("tool_id", "?"),
+                    "status":     data.get("status", "UNKNOWN"),
+                    "latency_ms": int(data.get("latency_ms", 0)),
+                    "checked_at": data.get("checked_at", ""),
+                    "check":      data.get("check", ""),
+                    "error":      data.get("error", ""),
+                })
+        results.sort(key=lambda x: (x["tool_id"], x["source"]))
+    except Exception as exc:
+        log.warning("_get_canary_data: Redis error — %s", exc)
+    return results
+
+
+def _build_health_panel(
+    items: list[dict],
+    name_key: str,
+    title: str,
+    empty_msg: str,
+) -> str:
+    """
+    Build an HTML health panel (grid of coloured dots) for smoke or canary data.
+
+    :param items:     list of dicts with at least status, latency_ms, checked_at, error
+    :param name_key:  which field to use as the display name ("tool" or "source")
+    :param title:     panel heading text
+    :param empty_msg: text shown when no items exist
+    """
+    if not items:
+        return f"""
+  <h2>{title}</h2>
+  <p class="note" style="padding:12px 0;color:#94a3b8">{empty_msg}</p>"""
+
+    # Count statuses
+    counts: dict[str, int] = {"PASS": 0, "FAIL": 0, "DEGRADED": 0, "SKIP": 0}
+    for item in items:
+        s = item["status"].upper()
+        counts[s] = counts.get(s, 0) + 1
+
+    summary_parts = []
+    for label, color in [("PASS", "#22c55e"), ("FAIL", "#ef4444"),
+                         ("DEGRADED", "#f59e0b"), ("SKIP", "#94a3b8")]:
+        n = counts.get(label, 0)
+        summary_parts.append(
+            f'<span style="color:{color};font-weight:600">{n} {label}</span>'
+        )
+    summary_line = ' <span style="color:#cbd5e1">·</span> '.join(summary_parts)
+
+    # Latest run timestamp
+    latest_ts = ""
+    with_ts = [i for i in items if i.get("checked_at")]
+    if with_ts:
+        latest = max(with_ts, key=lambda x: x["checked_at"])
+        latest_ts = _time_ago(latest["checked_at"])
+
+    # Item cards
+    dot_colors = {
+        "PASS":     "#22c55e",
+        "FAIL":     "#ef4444",
+        "DEGRADED": "#f59e0b",
+        "SKIP":     "#94a3b8",
+        "UNKNOWN":  "#cbd5e1",
+    }
+    badge_styles = {
+        "PASS":     "background:rgba(34,197,94,.12);color:#22c55e",
+        "FAIL":     "background:rgba(239,68,68,.12);color:#ef4444",
+        "DEGRADED": "background:rgba(245,158,11,.12);color:#f59e0b",
+        "SKIP":     "background:rgba(148,163,184,.12);color:#94a3b8",
+        "UNKNOWN":  "background:#e2e8f0;color:#94a3b8",
+    }
+
+    cards_html = ""
+    for item in items:
+        status = item["status"].upper()
+        name   = item.get(name_key, "?")
+        tid    = item.get("tool_id", "")
+        lat    = f"{item['latency_ms']}ms" if item.get("latency_ms") else ""
+        ago    = _time_ago(item.get("checked_at", ""))
+        err    = item.get("error", "") or ""
+        dot_c  = dot_colors.get(status, dot_colors["UNKNOWN"])
+        badge  = badge_styles.get(status, badge_styles["UNKNOWN"])
+
+        meta_parts = [p for p in [tid, lat, ago] if p]
+        meta_line  = " · ".join(meta_parts)
+        err_line   = f'<div style="font-size:10px;color:#ef4444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px" title="{err}">{err[:60]}</div>' if err else ""
+
+        cards_html += f"""
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;
+                background:#fff;border:1px solid #e2e8f0;border-radius:6px">
+      <span style="width:10px;height:10px;border-radius:50%;background:{dot_c};
+                   flex-shrink:0;margin-top:3px;display:inline-block"></span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;font-family:monospace;
+                    overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{name}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:1px">{meta_line}</div>
+        {err_line}
+      </div>
+      <span style="font-size:10px;font-weight:600;letter-spacing:.4px;
+                   padding:1px 6px;border-radius:3px;{badge};flex-shrink:0">{status}</span>
+    </div>"""
+
+    last_run_note = f'<span style="font-weight:400;color:#94a3b8;font-size:0.85rem"> — last run {latest_ts}</span>' if latest_ts else ""
+    return f"""
+  <h2>{title}{last_run_note}</h2>
+  <p class="note" style="margin-bottom:12px">{summary_line}</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">
+    {cards_html}
+  </div>"""
+
+
 # ── Section 13 data helpers ───────────────────────────────────────────────────
 
 def _get_s13_stats() -> dict[str, Any]:
@@ -459,6 +649,8 @@ def _build_html(
     usage_tools: dict,
     conv_stats: dict,
     s13_stats: Optional[dict] = None,
+    smoke_data: Optional[list] = None,
+    canary_data: Optional[list] = None,
 ) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -542,6 +734,22 @@ def _build_html(
           <th>In grace period</th><th>Upgrade URL</th></tr></thead>
           <tbody>{conv_rows}</tbody>
         </table>"""
+
+    # ── Tool Health (smoke) panel ─────────────────────────────────────────────
+    tool_health_section = _build_health_panel(
+        items     = smoke_data or [],
+        name_key  = "tool",
+        title     = "Tool Health — Last Smoke Run",
+        empty_msg = "Smoke tests not yet run — check cron (runs at :30 past each hour).",
+    )
+
+    # ── Upstream Health (canary) panel ────────────────────────────────────────
+    upstream_health_section = _build_health_panel(
+        items     = canary_data or [],
+        name_key  = "source",
+        title     = "Upstream Health — Last Canary Run",
+        empty_msg = "Canary not yet run — check cron (runs at :00 past each hour).",
+    )
 
     # ── Section 13 panels ─────────────────────────────────────────────────────
     s13 = s13_stats or {}
@@ -693,6 +901,16 @@ def _build_html(
   {conv_html}
 
   <!-- ══════════════════════════════════════════════════════════════
+       Panel 3 — Tool Health (smoke tests, runs hourly at :30)
+  ══════════════════════════════════════════════════════════════ -->
+  {tool_health_section}
+
+  <!-- ══════════════════════════════════════════════════════════════
+       Panel 4 — Upstream Health (canary, runs hourly at :00)
+  ══════════════════════════════════════════════════════════════ -->
+  {upstream_health_section}
+
+  <!-- ══════════════════════════════════════════════════════════════
        Section 13 — Haiku Validation Architecture
   ══════════════════════════════════════════════════════════════ -->
   {s13_section}
@@ -711,7 +929,14 @@ async def index() -> HTMLResponse:
     usage_tools    = get_usage_summary()
     conv_stats     = get_conversion_stats()
     s13_stats      = _get_s13_stats()
-    html           = _build_html(feedback_tools, queue_stats, usage_tools, conv_stats, s13_stats=s13_stats)
+    smoke_items    = _get_smoke_data()
+    canary_items   = _get_canary_data()
+    html = _build_html(
+        feedback_tools, queue_stats, usage_tools, conv_stats,
+        s13_stats=s13_stats,
+        smoke_data=smoke_items,
+        canary_data=canary_items,
+    )
     return HTMLResponse(content=html, status_code=200)
 
 
@@ -720,7 +945,7 @@ async def api_summary() -> JSONResponse:
     """
     JSON summary with 'summary' and 'tools' keys.
 
-    summary  — totals, agent state, MCPIZE_ACTIVE, queue depths
+    summary  — totals, agent state, MCPIZE_ACTIVE, queue depths, smoke/canary counts
     tools    — per-tool feedback + usage stats merged
     """
     feedback_tools = _get_feedback_stats()
@@ -728,6 +953,28 @@ async def api_summary() -> JSONResponse:
     usage_tools    = get_usage_summary()
     conv_stats     = get_conversion_stats()
     s13_stats      = _get_s13_stats()
+    smoke_items    = _get_smoke_data()
+    canary_items   = _get_canary_data()
+
+    # ── Smoke counts ──────────────────────────────────────────────────────────
+    smoke_counts: dict[str, int] = {"PASS": 0, "FAIL": 0, "DEGRADED": 0, "SKIP": 0}
+    smoke_last_run: Optional[str] = None
+    for item in smoke_items:
+        s = item["status"].upper()
+        smoke_counts[s] = smoke_counts.get(s, 0) + 1
+        ts = item.get("checked_at")
+        if ts and (smoke_last_run is None or ts > smoke_last_run):
+            smoke_last_run = ts
+
+    # ── Canary counts ─────────────────────────────────────────────────────────
+    canary_counts: dict[str, int] = {"PASS": 0, "FAIL": 0, "DEGRADED": 0}
+    canary_last_run: Optional[str] = None
+    for item in canary_items:
+        s = item["status"].upper()
+        canary_counts[s] = canary_counts.get(s, 0) + 1
+        ts = item.get("checked_at")
+        if ts and (canary_last_run is None or ts > canary_last_run):
+            canary_last_run = ts
 
     # Merge feedback + usage per tool
     all_tool_ids = sorted(set(feedback_tools) | set(usage_tools))
@@ -747,6 +994,16 @@ async def api_summary() -> JSONResponse:
             "feedback_queue_depth":     queue_stats["feedback_queue_depth"],
             "collector_paused":         queue_stats["collector_paused"],
             "conversion":               conv_stats,
+            # ── Smoke test health ─────────────────────────────────────────────
+            "tools_passing":            smoke_counts.get("PASS", 0),
+            "tools_failing":            smoke_counts.get("FAIL", 0),
+            "tools_degraded":           smoke_counts.get("DEGRADED", 0),
+            "tools_skipped":            smoke_counts.get("SKIP", 0),
+            "smoke_last_run":           smoke_last_run,
+            # ── Canary / upstream health ──────────────────────────────────────
+            "upstreams_passing":        canary_counts.get("PASS", 0),
+            "upstreams_failing":        canary_counts.get("FAIL", 0),
+            "canary_last_run":          canary_last_run,
             # ── Section 13 keys ───────────────────────────────────────────────
             "haiku_calls_today":        s13_stats["haiku_calls_today"],
             "haiku_daily_limit":        HAIKU_MAX_CALLS_PER_DAY,
