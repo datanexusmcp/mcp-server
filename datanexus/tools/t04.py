@@ -115,9 +115,7 @@ UK_CHARITY_TTL = 86400   # 24h — UK GDPR maximum
 @with_timeout
 @verify_entitlement("T04")
 async def fetch_nonprofit_by_ein(ein: str) -> dict:
-    """Use this to research a US charity or nonprofit by EIN number.
-    Provide the EIN with or without dash. Returns financial history,
-    revenue, expenses, assets, and IRS registration status."""
+    """Fetch IRS 990 filing data for any US nonprofit by EIN. Read-only. No side effects. Idempotent. US only. ein: 9-digit Employer ID with or without dash, e.g. 13-1837418 or 131837418. Required. Returns name, revenue, expenses, assets, NTEE code, and mission from the most recent 990 filing. Use this when you have the exact EIN. Use nonprofit_search_nonprofits_by_name instead when you only have a name. Verified source: IRS EO BMF + IRS TEOS. 7-day cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -245,9 +243,7 @@ async def fetch_nonprofit_by_ein(ein: str) -> dict:
 @with_timeout
 @verify_entitlement("T04")
 async def search_nonprofits_by_name(name: str, state: str = "") -> dict:
-    """Use this to find US nonprofits by organisation name.
-    Provide a full or partial name and optional state code.
-    Returns up to 25 matches with EINs for precise lookup."""
+    """Search US nonprofits by name with optional state filter. Read-only. No side effects. Idempotent. US only. Returns up to 25 matches. name: Full or partial organisation name. Required. state: Two-letter US state code e.g. CA, NY. Optional, defaults to all states. Returns EIN, name, state, revenue, and NTEE code for each match. Use this when you have a name but not the EIN. Use nonprofit_fetch_nonprofit_by_ein instead when you have the exact EIN for a precise single lookup. Verified source: IRS EO BMF. 7-day cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -344,9 +340,7 @@ async def search_nonprofits_by_name(name: str, state: str = "") -> dict:
 @with_timeout
 @verify_entitlement("T04")
 async def fetch_charity_uk(charity_number_or_name: str) -> dict:
-    """Use this to look up a UK registered charity by number or name.
-    Provide the charity number or organisation name.
-    Returns income, activities, and registration details."""
+    """Fetch UK registered charity details by charity number or organisation name. Read-only. No side effects. Idempotent. UK only. charity_number_or_name: UK registered charity number (7 digits, e.g. 1234567) or full/partial organisation name. Required. Returns registration status, income, expenditure, activities, and trustee count. Use this for UK charities. Use nonprofit_fetch_nonprofit_by_ein or nonprofit_search_nonprofits_by_name for US nonprofits. Verified source: UK Charity Commission OGL v3. 24-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None

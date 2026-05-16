@@ -108,9 +108,7 @@ async def fetch_package_vulnerabilities(
     version: str,
     ecosystem: str,
 ) -> dict:
-    """Use this to check whether a software package has known security vulnerabilities.
-    Provide package name, version, and ecosystem (npm, PyPI, or Maven).
-    Returns CVE IDs, severity scores, and available patch versions."""
+    """Fetch all known CVEs for an open source package version. Read-only. No side effects. Idempotent. package: Package name e.g. requests, lodash. Required. version: Exact version string e.g. 2.28.0. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns CVE ID, severity, CVSS score, affected range, and fixed version for each vulnerability. Use this to check a specific package version. Use security_fetch_cve_detail instead when you have a CVE ID and need full detail. Use security_audit_sbom_vulnerabilities instead when auditing an entire dependency manifest. Verified source: Google OSV.dev + NIST NVD. 1-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -264,9 +262,7 @@ async def fetch_dependency_graph(
     version: str,
     ecosystem: str,
 ) -> dict:
-    """Use this to get the full dependency tree for a software package.
-    Provide package name, version, and ecosystem.
-    Returns all direct and transitive dependencies."""
+    """Fetch the full dependency tree for a package version including transitive dependencies. Read-only. No side effects. Idempotent. Hard 8-second timeout — large dependency trees may return partial results. package: Package name. Required. version: Exact version string e.g. 1.2.3. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns all direct and transitive dependencies with version constraints. Use this to understand full supply chain exposure. Use security_fetch_package_vulnerabilities instead when you only need CVEs for a single package. Verified source: deps.dev (Google). 1-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -440,9 +436,7 @@ async def fetch_dependency_graph(
 @with_timeout
 @verify_entitlement("T10")
 async def fetch_cve_detail(cve_id: str) -> dict:
-    """Use this to get full detail on a specific CVE by its identifier.
-    Provide the CVE ID such as CVE-2021-44228.
-    Returns severity, CVSS score, affected versions, and fix information."""
+    """Fetch full detail for a specific CVE by ID. Read-only. No side effects. Idempotent. cve_id: CVE identifier in format CVE-YYYY-NNNNN e.g. CVE-2021-44228. Required. Returns description, CVSS base score, affected products, patch references, and publish date. Use this when you have a CVE ID and need complete detail beyond what a package scan returns. Use security_fetch_package_vulnerabilities instead when you want all CVEs for a package version. Verified source: NIST NVD. 1-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -614,9 +608,7 @@ async def fetch_cve_detail(cve_id: str) -> dict:
 @with_timeout
 @verify_entitlement("T10")
 async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
-    """Use this to audit a software bill of materials for known vulnerabilities.
-    Provide a CycloneDX or SPDX SBOM as a JSON string.
-    Returns all CVEs found across every listed component."""
+    """Audit a Software Bill of Materials for known vulnerabilities across all listed packages. Read-only. No side effects. Idempotent. sbom_json: CycloneDX or SPDX SBOM as a JSON string. Required. Large SBOMs (100+ packages) may take up to 10 seconds. Returns CVEs grouped by package with severity and fixed versions. Use this when you have a full SBOM to audit. Use security_fetch_package_vulnerabilities instead when checking a single package version. Verified source: Google OSV.dev batch API. 1-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -764,9 +756,7 @@ async def fetch_package_licence(
     version: str,
     ecosystem: str,
 ) -> dict:
-    """Use this to check the licence for an open source package version.
-    Provide package name, version, and ecosystem.
-    Returns the declared licence identifier such as MIT or Apache-2.0."""
+    """Fetch the SPDX licence identifier for an open source package version. Read-only. No side effects. Idempotent. package: Package name e.g. flask. Required. version: Exact version string e.g. 2.3.0. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns the SPDX licence identifier e.g. MIT, Apache-2.0, GPL-3.0. Use this to verify licence compatibility before including a dependency. Use security_fetch_package_vulnerabilities instead when checking for security issues not licences. Verified source: deps.dev (Google). 1-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None

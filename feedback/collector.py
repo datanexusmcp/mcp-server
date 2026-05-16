@@ -103,28 +103,7 @@ async def report_feedback(
     comment: str = "",
     missing_fields: Optional[List[str]] = None,
 ) -> dict:
-    """
-    Submit explicit feedback about a DataNexus tool response.
-
-    ALWAYS returns {'status': 'recorded'} — never raises, never errors.
-    Identical calls within 60 seconds increment vote_count rather than
-    creating duplicate records. BUG_SIGNAL calls are routed immediately
-    for alerting; improvement signals queue for daily digest.
-
-    Args:
-      tool_id:        Tool that produced the response (T04 or T10).
-      query_hash:     query_hash field from the tool response — links feedback to audit.
-      signal:         Feedback type — one of:
-                        BUG:         not_useful, incorrect_data, missing_field,
-                                     hallucination, wrong_entity, stale_data, data_quality
-                        IMPROVEMENT: helpful, very_helpful, feature_request,
-                                     good_result, saved_time
-      comment:        Optional free-text comment (max 1000 chars).
-      missing_fields: Required when signal == 'missing_field'.
-
-    Returns:
-      {'status': 'recorded'}  — always.
-    """
+    """Report a data quality issue with a specific DataNexus tool response. Read-only call. Records feedback for human and AI review. tool_id: Tool identifier e.g. T04. Required. query_hash: Hash from the response being reported. Required. Found in the query_hash field of any response. signal: One of incorrect_data, missing_field, stale_data, not_useful, wrong_entity, or data_quality. Required. comment: Description of the issue. Optional. Max 500 characters. missing_fields: List of field names that are absent or wrong. Optional. Call this after receiving a result that appears wrong, outdated, or incomplete. Do not call this to report network errors — those resolve on retry."""
     try:
         _handle_feedback(tool_id, query_hash, signal, comment, missing_fields)
     except Exception:

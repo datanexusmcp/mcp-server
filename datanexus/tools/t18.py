@@ -184,9 +184,7 @@ async def search_contract_awards(
     date_from: str = "",
     jurisdiction: str = "US",
 ) -> dict:
-    """Use this to search government contract awards by keyword or agency.
-    Provide a keyword, optional agency name, and optional date range.
-    Returns matching awards with values, recipients, and award dates."""
+    """Search government contract awards by keyword, agency, and date range. Read-only. No side effects. Idempotent. keyword: Search terms describing the contract scope e.g. cybersecurity software. Required. agency: Awarding agency name e.g. Department of Defense. Optional, defaults to all agencies. date_from: Earliest award date in ISO 8601 format e.g. 2024-01-31. Optional, defaults to all dates. jurisdiction: One of US, EU, or UK. Optional. Default US. Returns award amounts, recipient vendors, NAICS codes, and award dates. Use this when exploring the competitive landscape for a topic area. Use govcon_fetch_vendor_contract_history instead when you need all contracts for a specific vendor. Use govcon_fetch_open_solicitations instead when you need active bids not past awards. Verified source: USASpending.gov + SAM.gov. 4-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -380,9 +378,7 @@ async def fetch_vendor_contract_history(
     vendor_name: str,
     jurisdiction: str = "US",
 ) -> dict:
-    """Use this to get the complete government contract history for a vendor.
-    Provide the vendor or company name.
-    Returns all contracts awarded with amounts, agencies, and dates."""
+    """Fetch the complete federal contract award history for a specific vendor. Read-only. No side effects. Idempotent. vendor_name: Company or organisation name e.g. Booz Allen Hamilton. Required. Fuzzy match used. jurisdiction: One of US, EU, or UK. Optional. Default US. Returns total award value, top awarding agencies, contract types, and recent awards with amounts and dates. Use this when researching a specific company's government contracting history. Use govcon_search_contract_awards instead when exploring a topic area without a specific vendor. Verified source: USASpending.gov. 4-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -531,9 +527,7 @@ async def fetch_open_solicitations(
     agency: str = "",
     jurisdiction: str = "US",
 ) -> dict:
-    """Use this to find currently open government procurement opportunities.
-    Provide keywords describing what goods or services you are seeking.
-    Returns active solicitations with deadlines and agency contact details."""
+    """Fetch currently open government contract solicitations matching a keyword. Read-only. No side effects. Idempotent. keyword: Description of goods or services sought e.g. cloud computing services. Required. Encode special characters — + becomes %2B. agency: Awarding agency name. Optional, defaults to all agencies. jurisdiction: One of US, EU, or UK. Optional. Default US. Returns solicitation title, agency, response deadline, estimated value, and NAICS code. Use this when looking for active bid opportunities. Use govcon_search_contract_awards instead when you need historical awards not open solicitations. Verified source: SAM.gov + USASpending.gov. 4-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None

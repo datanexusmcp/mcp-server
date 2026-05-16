@@ -69,19 +69,7 @@ def _score(query_tokens: list[str], task_tokens: list[str]) -> int:
 
 
 async def search_datanexus_tools(query: str, domain: Optional[str] = None) -> dict:
-    """
-    Use this to find the right DataNexus tool for your task.
-    Call this FIRST before any other DataNexus tool.
-    Provide a plain-language description of what you need.
-    Returns matching tool names you can call directly.
-
-    Examples:
-      search_datanexus_tools("research a nonprofit organisation")
-      search_datanexus_tools("check package for security vulnerabilities")
-      search_datanexus_tools("verify a doctor NPI number")
-      search_datanexus_tools("find government contracts awarded to a vendor")
-      search_datanexus_tools("look up a patent", domain="legal")
-    """
+    """Find the right DataNexus tool by describing your task in plain English. Read-only. No side effects. Call this before any other DataNexus tool to reduce context load from 40000 to 800 tokens. query: Plain English description of your task e.g. check if a Python package has CVEs or look up a UK charity by name. Required. domain: Restrict results to one sub-server: nonprofit, security, compliance, domain, legal, govcon, or regulatory. Optional. Returns matching tool names and parameter hints you can call directly. Do not call this recursively or to validate results — use validate_tool_output for that."""
     # Analytics: INCR daily counter — raw query text is never stored
     analytics_key = f"analytics:search:{date.today().isoformat()}"
     try:

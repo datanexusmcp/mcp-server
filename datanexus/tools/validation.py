@@ -58,7 +58,7 @@ async def validate_tool_output(
     query_hash: str,
     response_json: str,
 ) -> dict:
-    """Validate any DataNexus tool response for data quality anomalies. Two-layer validation: deterministic rules (always) + Haiku AI review (only on ambiguous deterministic findings). Auto-files feedback on consensus issues only — both layers must agree before filing. Never blocks — always returns structured result. Verified source: DataNexus internal validator. AI-Ready output. Token-efficient. Two-layer validation architecture. data quality coverage for T04 and T10. Example: validate_tool_output(tool_id='T10', query_hash='3d1697...', response_json=json.dumps(tool_response))"""
+    """Validate a DataNexus tool response for data quality issues using two-layer validation: deterministic rules first, then AI review for ambiguous cases. Read-only. Never blocks. tool_id: DataNexus tool identifier e.g. T04, T10, T22. Required. Find in the tool_id field of any response. query_hash: Hash from the response you are validating. Required. Enables feedback correlation. response_json: Full tool response serialised as a JSON string. Required. Returns pass or issues_found, with issues from each layer and whether feedback was auto-filed. Both layers must agree before feedback is filed. Use validate_tool_output to check data quality. Use report_feedback instead to manually report an issue you have already identified."""
     # ── Safe outer wrapper — never raises ────────────────────────────────────
     try:
         return await _validate_inner(tool_id, query_hash, response_json)

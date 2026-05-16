@@ -131,9 +131,7 @@ def _incr_calls(tool_id: str) -> None:
 @with_timeout
 @verify_entitlement("T22")
 async def fetch_npi_provider(npi_number: str) -> dict:
-    """Use this to verify a US healthcare provider by their NPI number.
-    Provide the 10-digit NPI number.
-    Returns provider name, credential, speciality, and active status."""
+    """Fetch NPI registration details for a US healthcare provider by NPI number. Read-only. No side effects. Idempotent. US only. npi_number: 10-digit NPI number e.g. 1003000126. Required. Do not include dashes or spaces. Returns provider name, credential type, speciality taxonomy, practice address, and active status. Use this when you have the exact 10-digit NPI. Use compliance_search_npi_by_name instead when you only have the provider name. Verified source: NPPES NPI Registry (CMS). 24-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -269,9 +267,7 @@ async def search_npi_by_name(
     state: str = "",
     speciality: str = "",
 ) -> dict:
-    """Use this to find a healthcare provider by name when you do not have their NPI.
-    Provide name and optional state or speciality.
-    Returns matching providers with NPI numbers for precise lookup."""
+    """Search the NPPES NPI Registry by provider name with optional state and speciality filters. Read-only. No side effects. Idempotent. US only. Returns up to 10 matches. name: Full or partial provider name. Required. state: Two-letter US state code e.g. CA. Optional. speciality: Speciality keyword e.g. Cardiology. Optional. Returns NPI number, name, speciality, and address for each match. Use this when you do not have the NPI number. Use compliance_fetch_npi_provider instead when you have the exact 10-digit NPI. Verified source: NPPES NPI Registry (CMS). 24-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -381,9 +377,7 @@ async def search_npi_by_name(
 @with_timeout
 @verify_entitlement("T22")
 async def fetch_finra_broker(crd_number: str) -> dict:
-    """Use this to verify a financial broker or advisor is registered with FINRA.
-    Provide their name or CRD number.
-    Returns registration status, licences held, and disclosure history."""
+    """Fetch FINRA BrokerCheck registration for a US broker or investment adviser by CRD number. Read-only. No side effects. Idempotent. US only. crd_number: Central Registration Depository number as a string of digits e.g. 1234567. Required. CRD number only — name lookup is not supported. Returns registration status, qualifications, disclosure history, and employment history. Use this when you have the CRD number. Use compliance_search_npi_by_name instead for healthcare providers, not financial advisers. Verified source: FINRA BrokerCheck. 24-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -548,9 +542,7 @@ async def fetch_finra_broker(crd_number: str) -> dict:
 @with_timeout
 @verify_entitlement("T22")
 async def check_sam_exclusion(name_or_ein: str) -> dict:
-    """Use this to check whether a person or company is excluded from US federal contracting.
-    Provide their name or EIN.
-    Returns whether they appear on the SAM.gov exclusions list."""
+    """Check whether an entity is on the US federal exclusions list (debarred from government contracts). Read-only. No side effects. Idempotent. US only. name_or_ein: Entity name or 9-digit EIN with or without dash e.g. Acme Corp or 13-1234567. Required. Name match is fuzzy — verify EIN for exact results. Returns excluded: true/false, exclusion type, and exclusion dates if found. Use this before awarding federal contracts or grants. Use govcon_search_contract_awards instead to find what contracts an entity has won. Verified source: SAM.gov. 24-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None

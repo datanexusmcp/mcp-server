@@ -124,9 +124,7 @@ def _incr_calls(tool_id: str) -> None:
 @with_timeout
 @verify_entitlement("T07")
 async def fetch_domain_rdap(domain: str) -> dict:
-    """Use this to look up domain registration details and ownership.
-    Provide the domain name such as example.com.
-    Returns registrar, registration date, expiry date, and current status."""
+    """Fetch domain registration details via IANA RDAP (the modern structured replacement for WHOIS). Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. example.com not https://example.com. Required. Returns registrar, registration date, expiry date, nameservers, and registrant info where publicly available. Use this when you need registration metadata. Use domain_fetch_ssl_certificate_chain instead when you need certificate history. Use domain_fetch_dns_records instead when you need live DNS resolution. Verified source: IANA RDAP. 4-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -257,9 +255,7 @@ async def fetch_domain_rdap(domain: str) -> dict:
 @with_timeout
 @verify_entitlement("T07")
 async def fetch_ssl_certificate_chain(domain: str) -> dict:
-    """Use this to inspect the SSL certificate chain for a domain.
-    Provide the domain name.
-    Returns certificate issuer, validity dates, and full chain detail."""
+    """Fetch SSL certificate history for a domain from Certificate Transparency logs. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. github.com. Required. Does not support IP addresses or wildcard domains. Returns issuer, subject, validity period, and Subject Alternative Names for each logged cert. Use this to detect unexpected certificate issuance or audit certificate history. Use domain_fetch_domain_rdap instead when you need registration data not certificate data. Verified source: crt.sh Certificate Transparency. 4-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -367,9 +363,7 @@ async def fetch_ssl_certificate_chain(domain: str) -> dict:
 @with_timeout
 @verify_entitlement("T07")
 async def fetch_dns_records(domain: str, record_types: list) -> dict:
-    """Use this to get DNS records for a domain.
-    Provide the domain name and optional record type such as A, MX, or TXT.
-    Returns all matching DNS records currently in effect."""
+    """Fetch current DNS records for a domain via Cloudflare DNS over HTTPS. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. cloudflare.com. Required. record_types: List of DNS record types to fetch. Required. Valid values: A, AAAA, MX, TXT, NS, CNAME, SOA. Example: ["A", "MX", "TXT"]. Returns all matching records currently in effect. Use this when you need live DNS resolution. Use domain_fetch_domain_rdap instead when you need registration metadata not DNS records. Verified source: Cloudflare DoH. 4-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -484,9 +478,7 @@ async def fetch_dns_records(domain: str, record_types: list) -> dict:
 @with_timeout
 @verify_entitlement("T07")
 async def fetch_domain_history(domain: str) -> dict:
-    """Use this to get historical SSL certificate records for a domain.
-    Provide the domain name.
-    Returns past certificates from Certificate Transparency logs."""
+    """Fetch historical SSL certificate issuance for a domain from Certificate Transparency logs. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. example.com. Required. Returns all past certificates with issuer, validity dates, and SANs in reverse chronological order. Use this to detect domain hijacking or audit unexpected historical certificate issuance. Use domain_fetch_ssl_certificate_chain instead when you only need the current certificate chain. Verified source: crt.sh Certificate Transparency. 4-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None

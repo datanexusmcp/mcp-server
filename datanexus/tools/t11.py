@@ -309,9 +309,7 @@ def _source_limitation(reason: str) -> str:
 @with_timeout
 @verify_entitlement("T11")
 async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -> dict:
-    """Use this to look up a specific patent by its number.
-    Provide the patent number and jurisdiction: US, EP, or WO.
-    Returns filing details, claims summary, inventor, and current assignee."""
+    """Fetch full patent details by patent number and jurisdiction. Read-only. No side effects. Idempotent. patent_number: Patent number in jurisdiction format e.g. EP1000000 for European, US10000000 for USPTO, WO2020123456 for PCT. Required. jurisdiction: One of EP (EPO), US (USPTO), or WO (WIPO PCT). Required. Default EP. Returns title, abstract, inventors, assignees, filing date, claims summary, and citation count. Use this when you have a specific patent number. Use legal_search_patents_by_keyword instead when you only have keywords and need to find patents. Verified source: EPO OPS + USPTO. 24-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -499,9 +497,7 @@ async def search_patents_by_keyword(
     jurisdiction: str = "EP",
     date_from: str = "",
 ) -> dict:
-    """Use this to search for patents by keyword to find prior art before filing.
-    Provide keywords and optional jurisdiction.
-    Returns matching patents with numbers, titles, and filing dates."""
+    """Search patents by keyword across EPO, USPTO, or WIPO. Read-only. No side effects. Idempotent. Returns up to 10 matches. keywords: Search terms describing the invention e.g. neural network image classification. Required. jurisdiction: One of EP, US, or WO. Optional. Default EP. date_from: Earliest filing date in ISO 8601 format e.g. 2020-01-31. Optional, defaults to no lower bound. Returns patent numbers, titles, and filing dates. Use this when finding prior art or exploring a technology landscape without a specific number. Use legal_fetch_patent_by_number instead when you have the patent number already. Verified source: EPO OPS + USPTO. 24-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -686,9 +682,7 @@ async def fetch_patent_citations(
     patent_number: str,
     jurisdiction: str = "EP",
 ) -> dict:
-    """Use this to get citation chains for a specific patent.
-    Provide the patent number and jurisdiction.
-    Returns patents that cite this one and patents this one cites."""
+    """Fetch forward and backward citation chains for a specific patent. Read-only. No side effects. Idempotent. patent_number: Patent number in jurisdiction format e.g. EP1000000, US10000000. Required. jurisdiction: One of EP, US, or WO. Optional. Default EP. Returns citing patents (forward citations) and cited patents (backward citations) with filing dates and titles. Use this when building a prior art citation chain for a specific patent you already have. Use legal_search_patents_by_keyword instead when you need to find patents by topic not by citation. Verified source: EPO OPS. 24-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -865,9 +859,7 @@ async def fetch_inventor_portfolio(
     inventor_name: str,
     assignee: str = "",
 ) -> dict:
-    """Use this to get all patents filed by a specific inventor.
-    Provide the inventor name and optional assignee to narrow results.
-    Returns the full portfolio with filing dates and current status."""
+    """Fetch the patent portfolio for a named inventor with optional assignee filter. Read-only. No side effects. Idempotent. inventor_name: Inventor surname or full name e.g. Smith or John Smith. Required. Fuzzy match — common names may return many results. assignee: Company or organisation name to narrow results e.g. Apple Inc. Optional. Returns patent numbers, titles, filing dates, jurisdictions, and current status. Use this when researching an inventor's work or a company's patent portfolio. Use legal_search_patents_by_keyword instead when you need patents by topic not by inventor. Verified source: EPO OPS + USPTO. 24-hour cache."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
