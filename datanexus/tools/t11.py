@@ -64,15 +64,16 @@ mcp = FastMCP("datanexus-t11")
 T11_TTL = 86400  # 24 hours — spec requirement
 
 DISCLAIMER = (
-    "Patent data sourced from EPO Open Patent Services, USPTO PatentsView, "
-    "and WIPO PATENTSCOPE. DataNexus does not warrant completeness or legal "
-    "accuracy. Patent status and claims should be verified with the issuing "
-    "authority. Not legal advice."
+    "Patent data sourced from EPO Open Patent Services and WIPO PATENTSCOPE. "
+    "USPTO PatentsView decommissioned May 2026; US patent search is no longer "
+    "available from free sources. DataNexus does not warrant completeness or "
+    "legal accuracy. Patent status and claims should be verified with the "
+    "issuing authority. Not legal advice."
 )
 
 EPO_AUTH_URL      = "https://ops.epo.org/3.2/auth/accesstoken"
 EPO_OPS_URL       = "https://ops.epo.org/3.2/rest-services"
-PATENTSVIEW_URL   = "https://api.patentsview.org/patents/query"
+PATENTSVIEW_URL   = "https://api.patentsview.org/patents/query"  # decommissioned May 2026
 WIPO_SEARCH_URL   = "https://patentscope.wipo.int/search/api/patents"
 
 _HTTP_TIMEOUT = httpx.Timeout(20.0, connect=8.0)
@@ -272,6 +273,32 @@ def _epo_doc_to_dict(doc: dict) -> dict:
     }
 
 
+def _extract_epo_search_docs(data: dict) -> list:
+    """
+    Extract exchange-document list from EPO OPS /published-data/search response.
+
+    EPO changed their response format: results are now under
+    ops:search-result > exchange-documents (list of {exchange-document: ...})
+    rather than the old ops:search-result > ops:publication-reference path.
+    """
+    sr = (
+        data.get("ops:world-patent-data", {})
+            .get("ops:biblio-search", {})
+            .get("ops:search-result", {})
+    )
+    exchange_docs = sr.get("exchange-documents", [])
+    if isinstance(exchange_docs, dict):
+        exchange_docs = [exchange_docs]
+    docs = []
+    for item in exchange_docs:
+        doc = item.get("exchange-document", item)
+        if isinstance(doc, list):
+            doc = doc[0]  # multiple family members — take the first
+        if isinstance(doc, dict):
+            docs.append(doc)
+    return docs
+
+
 def _patentsview_doc_to_dict(patent: dict) -> dict:
     """Extract key fields from a PatentsView patent record."""
     inventors = [
@@ -380,41 +407,8 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
                     record_failure_sync("epo_ops")
                     staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
-        # ── Fallback: USPTO PatentsView (US jurisdiction or EPO failure) ─────
-        if not result and not is_tripped("patentsview"):
-            try:
-                q = {"_eq": {"patent_number": patent_clean.lstrip("US")}}
-                payload = {
-                    "q": q,
-                    "f": [
-                        "patent_id", "patent_title", "patent_date",
-                        "patent_num_claims", "inventor_first_name",
-                        "inventor_last_name", "assignee_organization",
-                        "assignee_first_name", "assignee_last_name",
-                    ],
-                    "o": {"per_page": 1},
-                }
-                async with httpx.AsyncClient(
-                    timeout=_HTTP_TIMEOUT, headers=_HEADERS
-                ) as client:
-                    resp = await client.post(
-                        PATENTSVIEW_URL,
-                        json=payload,
-                        headers={"Content-Type": "application/json"},
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    patents = data.get("patents") or []
-                    if patents:
-                        result = _patentsview_doc_to_dict(patents[0])
-                        result["patent_number"] = patent_clean
-                        result["jurisdiction"]  = "US"
-                        source_used = "USPTO PatentsView"
-                        record_success_sync("patentsview")
-            except Exception as exc:
-                log.warning("PatentsView fetch_patent_by_number failed: %s", exc)
-                record_failure_sync("patentsview")
-                staleness.append(get_staleness_notice("patentsview", "unknown"))
+        # Note: USPTO PatentsView decommissioned May 2026. US patents only
+        # available via EPO cross-reference for US-published EP families.
 
         if not result:
             resp = error_response(
@@ -550,16 +544,13 @@ async def search_patents_by_keyword(
                         resp.raise_for_status()
                         _track_epo_bytes(len(resp.content))
                         data = resp.json()
-                        docs = (
-                            data.get("ops:world-patent-data", {})
-                            .get("ops:biblio-search", {})
-                            .get("ops:search-result", {})
-                            .get("ops:publication-reference", [])
-                        )
-                        if isinstance(docs, dict):
-                            docs = [docs]
+                        # EPO search returns exchange-documents (not ops:publication-reference)
+                        docs = _extract_epo_search_docs(data)
                         for doc in docs[:10]:
                             entry = _epo_doc_to_dict(doc)
+                            entry["patent_number"] = (
+                                doc.get("@country", "") + doc.get("@doc-number", "")
+                            )
                             entry["jurisdiction"] = juris_clean
                             results.append(entry)
                         source_used = "EPO OPS"
@@ -569,42 +560,8 @@ async def search_patents_by_keyword(
                     record_failure_sync("epo_ops")
                     staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
-        # ── USPTO PatentsView fallback ────────────────────────────────────────
-        if not results and not is_tripped("patentsview"):
-            try:
-                q_parts: list[dict] = [{"_text_any": {"patent_title": kw_clean}}]
-                if date_from:
-                    q_parts.append({"_gte": {"patent_date": date_from}})
-                query = {"_and": q_parts} if len(q_parts) > 1 else q_parts[0]
-                payload = {
-                    "q": query,
-                    "f": [
-                        "patent_id", "patent_title", "patent_date",
-                        "inventor_first_name", "inventor_last_name",
-                        "assignee_organization",
-                    ],
-                    "o": {"per_page": 10},
-                }
-                async with httpx.AsyncClient(
-                    timeout=_HTTP_TIMEOUT, headers=_HEADERS
-                ) as client:
-                    resp = await client.post(
-                        PATENTSVIEW_URL,
-                        json=payload,
-                        headers={"Content-Type": "application/json"},
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    for p in (data.get("patents") or []):
-                        entry = _patentsview_doc_to_dict(p)
-                        entry["jurisdiction"] = "US"
-                        results.append(entry)
-                    source_used = "USPTO PatentsView"
-                    record_success_sync("patentsview")
-            except Exception as exc:
-                log.warning("PatentsView search_patents_by_keyword failed: %s", exc)
-                record_failure_sync("patentsview")
-                staleness.append(get_staleness_notice("patentsview", "unknown"))
+        # Note: USPTO PatentsView decommissioned May 2026. No free US patent
+        # search API is currently available without registration.
 
         if not results:
             resp = error_response(
@@ -906,16 +863,13 @@ async def fetch_inventor_portfolio(
                         resp.raise_for_status()
                         _track_epo_bytes(len(resp.content))
                         data = resp.json()
-                        docs = (
-                            data.get("ops:world-patent-data", {})
-                            .get("ops:biblio-search", {})
-                            .get("ops:search-result", {})
-                            .get("ops:publication-reference", [])
-                        )
-                        if isinstance(docs, dict):
-                            docs = [docs]
+                        # EPO search returns exchange-documents (not ops:publication-reference)
+                        docs = _extract_epo_search_docs(data)
                         for doc in docs[:20]:
                             entry = _epo_doc_to_dict(doc)
+                            entry["patent_number"] = (
+                                doc.get("@country", "") + doc.get("@doc-number", "")
+                            )
                             entry["jurisdiction"] = "EP"
                             results.append(entry)
                         source_used = "EPO OPS"
@@ -925,47 +879,7 @@ async def fetch_inventor_portfolio(
                     record_failure_sync("epo_ops")
                     staleness.append(get_staleness_notice("epo_ops", "unknown"))
 
-        # ── USPTO PatentsView inventor search ─────────────────────────────────
-        if not results and not is_tripped("patentsview"):
-            try:
-                name_parts = name_clean.rsplit(" ", 1)
-                first = name_parts[0] if len(name_parts) > 1 else ""
-                last  = name_parts[-1]
-                q_parts: list[dict] = [{"_eq": {"inventor_last_name": last}}]
-                if first:
-                    q_parts.append({"_eq": {"inventor_first_name": first}})
-                if assignee_clean:
-                    q_parts.append({"_contains": {"assignee_organization": assignee_clean}})
-                query = {"_and": q_parts} if len(q_parts) > 1 else q_parts[0]
-                payload = {
-                    "q": query,
-                    "f": [
-                        "patent_id", "patent_title", "patent_date",
-                        "inventor_first_name", "inventor_last_name",
-                        "assignee_organization",
-                    ],
-                    "o": {"per_page": 20},
-                }
-                async with httpx.AsyncClient(
-                    timeout=_HTTP_TIMEOUT, headers=_HEADERS
-                ) as client:
-                    resp = await client.post(
-                        PATENTSVIEW_URL,
-                        json=payload,
-                        headers={"Content-Type": "application/json"},
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    for p in (data.get("patents") or []):
-                        entry = _patentsview_doc_to_dict(p)
-                        entry["jurisdiction"] = "US"
-                        results.append(entry)
-                    source_used = "USPTO PatentsView"
-                    record_success_sync("patentsview")
-            except Exception as exc:
-                log.warning("PatentsView fetch_inventor_portfolio failed: %s", exc)
-                record_failure_sync("patentsview")
-                staleness.append(get_staleness_notice("patentsview", "unknown"))
+        # Note: USPTO PatentsView decommissioned May 2026. EP portfolio only.
 
         if not results:
             resp = error_response(

@@ -188,7 +188,46 @@ async def get_all_metrics(r) -> dict[str, Any]:
         },
         "feed":            feed,
         "upstream_health": upstream_health,
+        "tool_health":     await get_tool_health(r),
     }
+
+
+async def get_tool_health(r) -> list[dict]:
+    """
+    Read smoke test results from Redis (datanexus:smoke:*).
+    Returns list of dicts sorted by tool_id then tool name.
+    Returns empty list if Redis is unavailable or no smoke data exists.
+    """
+    if r is None:
+        return []
+    try:
+        keys = await r.keys("datanexus:smoke:*")
+        if not keys:
+            return []
+        results = []
+        for key in sorted(keys):
+            data = await r.hgetall(key)
+            if data:
+                tool_name = key.split("datanexus:smoke:")[-1]
+                results.append({
+                    "tool":          tool_name,
+                    "tool_id":       data.get("tool_id", "?"),
+                    "status":        data.get("status", "UNKNOWN"),
+                    "latency_ms":    int(data.get("latency_ms", 0)),
+                    "checked_at":    data.get("checked_at", ""),
+                    "ingest_healthy": data.get("ingest_healthy", ""),
+                    "checks_passed": data.get("checks_passed", "").split(",") if data.get("checks_passed") else [],
+                    "checks_failed": data.get("checks_failed", "").split(",") if data.get("checks_failed") else [],
+                    "error":         data.get("error", ""),
+                })
+        results.sort(key=lambda x: (x["tool_id"], x["tool"]))
+        return results
+    except Exception as exc:
+        import logging
+        logging.getLogger("datanexus.ops.metrics").warning(
+            "tool_health read failed: %s", exc
+        )
+        return []
 
 
 async def get_upstream_health(r) -> list[dict]:

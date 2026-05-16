@@ -238,7 +238,15 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
   </section>
 
-  <!-- Upstream Health -->
+  <!-- Tool Health (smoke tests) -->
+  <section>
+    <h2>Tool Health <span style="font-weight:400;color:var(--muted)" id="smoke-checked-at"></span></h2>
+    <div class="upstream-grid" id="tool-health-grid">
+      <div class="upstream-empty"><span class="spinner"></span></div>
+    </div>
+  </section>
+
+  <!-- Upstream Health (canary) -->
   <section>
     <h2>Upstream Health <span style="font-weight:400;color:var(--muted)" id="canary-checked-at"></span></h2>
     <div class="upstream-grid" id="upstream-grid">
@@ -289,6 +297,33 @@ function renderTools(tools) {
       <td class="num ${t.cache_misses === 0 ? 'zero' : ''}">${fmt(t.cache_misses)}</td>
       ${hitRateCell(t.cache_hits, t.cache_misses, t.hit_rate)}
     </tr>`;
+  }).join('');
+}
+
+function renderToolHealth(items) {
+  const el = document.getElementById('tool-health-grid');
+  if (!items || !items.length) {
+    el.innerHTML = '<div class="upstream-empty">No smoke data yet — smoke runs hourly at :30.</div>';
+    return;
+  }
+  const latest = items.reduce((a, b) => (a.checked_at > b.checked_at ? a : b), items[0]);
+  const ts = latest.checked_at ? latest.checked_at.replace('T', ' ').slice(0, 19) + 'Z' : '';
+  document.getElementById('smoke-checked-at').textContent = ts ? '— last run ' + ts : '';
+
+  el.innerHTML = items.map(item => {
+    const cls  = (item.status || 'unknown').toLowerCase();
+    const lat  = item.latency_ms > 0 ? item.latency_ms + 'ms' : '';
+    const err  = item.error ? ' · ' + item.error.slice(0, 60) : '';
+    const fail = item.checks_failed && item.checks_failed.length
+      ? ' · ✗ ' + item.checks_failed.join(', ') : '';
+    return `<div class="upstream-item">
+      <div class="upstream-dot ${cls}"></div>
+      <div class="upstream-info">
+        <div class="upstream-name">${item.tool}</div>
+        <div class="upstream-meta">${item.tool_id}${lat ? ' · ' + lat : ''}${err}${fail}</div>
+      </div>
+      <span class="upstream-badge ${cls}">${item.status}</span>
+    </div>`;
   }).join('');
 }
 
@@ -356,9 +391,10 @@ async function refresh() {
     // Date label
     document.getElementById('date-label').textContent = d.date || '';
 
-    // Table + feed + upstream health
+    // Table + feed + tool health + upstream health
     renderTools(d.tools || []);
     renderFeed(d.feed || []);
+    renderToolHealth(d.tool_health || []);
     renderUpstreamHealth(d.upstream_health || []);
 
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19) + 'Z';
