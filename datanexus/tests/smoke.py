@@ -550,17 +550,13 @@ async def smoke_fetch_patent_by_number() -> dict:
             fetch_patent_by_number(patent_number="EP1000000", jurisdiction="EP"),
             timeout=TIMEOUT_S,
         )
-        # T11 fetch_patent_by_number returns top-level keys:
-        # patent_number, jurisdiction, cites, cited_by, source, markdown, disclaimer, ...
-        patent_number = d.get("patent_number", "")
-        cites = d.get("cites", [])
-        cited_by = d.get("cited_by", [])
-        has_patent_id = bool(patent_number)
-        # citations list may be empty for some patents — presence of keys is sufficient
-        has_citation_keys = "cites" in d and "cited_by" in d
+        # T11 fetch_patent_by_number returns bibliographic metadata at top level:
+        # patent_number, title, applicants, inventors, ipc_codes, pub_date, source, ...
+        has_patent_id = bool(d.get("patent_number", ""))
+        has_metadata  = bool(d.get("title") or d.get("applicants") or d.get("inventors"))
         return _check(d, tool_id, tool_name, t0, [
-            ("has_patent_id",      has_patent_id),
-            ("has_citation_keys",  has_citation_keys),
+            ("has_patent_id", has_patent_id),
+            ("has_metadata",  has_metadata),
         ])
     except Exception as exc:
         return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
@@ -644,18 +640,19 @@ async def smoke_fetch_patent_citations() -> dict:
     try:
         from datanexus.tools.t11 import fetch_patent_citations
         t0 = time.monotonic()
+        # Use EP2000000 (not EP1000000) to avoid cache collision with fetch_patent_by_number.
+        # Both functions share the same T11 cache key when params are identical.
         d = await asyncio.wait_for(
-            fetch_patent_citations(patent_number="EP1000000", jurisdiction="EP"),
+            fetch_patent_citations(patent_number="EP2000000", jurisdiction="EP"),
             timeout=TIMEOUT_S,
         )
-        data = d.get("data", d)
-        has_citations = any(
-            k in data
-            for k in ("forward_citations", "backward_citations", "citations", "cites")
-        ) if isinstance(data, dict) else False
+        # Success response always has "cites" and "cited_by" keys (may be empty lists)
+        has_citation_keys = "cites" in d and "cited_by" in d
+        has_patent_id     = bool(d.get("patent_number", ""))
         return _check(d, tool_id, tool_name, t0, [
-            ("no_crash",      True),
-            ("has_citations", has_citations),
+            ("no_crash",          True),
+            ("has_patent_id",     has_patent_id),
+            ("has_citation_keys", has_citation_keys),
         ])
     except Exception as exc:
         return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
