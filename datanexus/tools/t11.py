@@ -519,6 +519,21 @@ async def search_patents_by_keyword(
         source_used = ""
         staleness: list[str] = []
 
+        # ── Keyword preprocessing ─────────────────────────────────────────────
+        # Strip meta-words that won't appear in patent title/abstract text.
+        # Users naturally type "cat vaccine patents" but "patent(s)" is never
+        # in a patent's own abstract — including it causes EPO to return 0 results.
+        _META_WORDS = {
+            "patent", "patents", "patented", "application", "applications",
+            "prior art", "prior", "art", "invention", "inventions",
+            "filing", "filed", "claim", "claims",
+        }
+        kw_tokens = kw_clean.split()
+        kw_filtered = " ".join(t for t in kw_tokens if t.lower() not in _META_WORDS)
+        kw_cql = kw_filtered.strip() or kw_clean  # fallback to original if all stripped
+        if kw_cql != kw_clean:
+            log.debug("search_patents_by_keyword: meta-word filter: %r → %r", kw_clean, kw_cql)
+
         # ── EPO OPS full-text search ──────────────────────────────────────────
         if juris_clean in ("EP", "WO") and not is_tripped("epo_ops"):
             token = _get_epo_token()
@@ -527,7 +542,8 @@ async def search_patents_by_keyword(
                     # EPO OPS CQL: use 'ta all "phrase"' (title AND abstract,
                     # contains all words).  'ti = "phrase"' causes HTTP 404 for
                     # multi-word queries because = is strict field equality.
-                    cql = f'ta all "{kw_clean}"'
+                    # Use kw_cql (meta-words stripped) not kw_clean.
+                    cql = f'ta all "{kw_cql}"'
                     if date_from:
                         # EPO date format: YYYYMMDD (no hyphens)
                         cql += f' AND pd >= {date_from.replace("-", "")}'

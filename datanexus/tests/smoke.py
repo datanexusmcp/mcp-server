@@ -592,7 +592,8 @@ async def smoke_search_patents_by_keyword() -> dict:
 
 
 async def smoke_search_patents_companion_animal() -> dict:
-    """Regression test for P15-4: multi-word EPO query that returned 404 with ti= syntax."""
+    """Regression test P15-4a: multi-word EPO query (companion animal vaccine).
+    Original bug: ti= syntax returned HTTP 404. Fix: ta all syntax."""
     tool_name, tool_id = "search_patents_companion_animal", "T11"
     try:
         from datanexus.tools.t11 import search_patents_by_keyword
@@ -603,7 +604,30 @@ async def smoke_search_patents_companion_animal() -> dict:
             ),
             timeout=TIMEOUT_S,
         )
-        # Results at top level (T11 returns results, count directly)
+        results = d.get("results", [])
+        count   = d.get("count", 0)
+        has_results = len(results) > 0 or (isinstance(count, (int, float)) and count > 0)
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_output",  bool(results) or bool(count) or bool(d.get("markdown"))),
+            ("has_results", has_results),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_search_patents_meta_word_strip() -> dict:
+    """Regression test P15-4b: query with meta-word 'patents' stripped before CQL.
+    'cat and dog vaccine patents' → meta-filter removes 'patents' → returns results."""
+    tool_name, tool_id = "search_patents_meta_word_strip", "T11"
+    try:
+        from datanexus.tools.t11 import search_patents_by_keyword
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            search_patents_by_keyword(
+                keywords="cat dog vaccine patents", jurisdiction="EP", date_from=""
+            ),
+            timeout=TIMEOUT_S,
+        )
         results = d.get("results", [])
         count   = d.get("count", 0)
         has_results = len(results) > 0 or (isinstance(count, (int, float)) and count > 0)
@@ -972,10 +996,11 @@ _SMOKE_COROUTINES = [
     smoke_fetch_ssl_certificate_chain,
     smoke_fetch_dns_records,
     smoke_fetch_domain_history,
-    # T11 — Legal (5: 4 core + 1 regression)
+    # T11 — Legal (6: 4 core + 2 regressions)
     smoke_fetch_patent_by_number,
     smoke_search_patents_by_keyword,
-    smoke_search_patents_companion_animal,   # P15-4 regression: multi-word EPO query
+    smoke_search_patents_companion_animal,      # P15-4a: multi-word EPO query (ta all fix)
+    smoke_search_patents_meta_word_strip,       # P15-4b: meta-word filter ("patents" stripped)
     smoke_fetch_patent_citations,
     smoke_fetch_inventor_portfolio,
     # T18 — GovCon (3)
@@ -993,7 +1018,7 @@ _SMOKE_COROUTINES = [
     smoke_report_mcpize_link,
 ]
 
-assert len(_SMOKE_COROUTINES) == 31, f"Expected 31 smoke tests, got {len(_SMOKE_COROUTINES)}"
+assert len(_SMOKE_COROUTINES) == 32, f"Expected 32 smoke tests, got {len(_SMOKE_COROUTINES)}"
 
 
 async def run_all() -> list:
