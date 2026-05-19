@@ -1,9 +1,9 @@
 """
 datanexus/tests/smoke.py — Production smoke test suite for DataNexus FastMCP server.
 
-Tests all 30 tool functions end-to-end with real API calls. Tools are executed
-concurrently via asyncio.gather with a 60-second per-tool timeout. Results are
-written to Redis (datanexus:smoke:{tool_name}) with a 2-hour TTL.
+Tests all 39 tool functions end-to-end with real API calls (Sprint 4). Tools are
+executed concurrently via asyncio.gather with a 60-second per-tool timeout.
+Results are written to Redis (datanexus:smoke:{tool_name}) with a 2-hour TTL.
 
 Status definitions:
   PASS     — ingest_healthy=True, disclaimer present, data non-empty, all checks pass
@@ -919,6 +919,222 @@ async def smoke_report_feedback() -> dict:
         return _make_result(tool_name, tool_id, "DEGRADED", 0, [], ["exception"], None, error=str(exc))
 
 
+async def smoke_fetch_cisa_kev() -> dict:
+    tool_name, tool_id = "fetch_cisa_kev", "T10"
+    try:
+        from datanexus.tools.t10 import fetch_cisa_kev
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_cisa_kev(cve_id="CVE-2021-44228"), timeout=TIMEOUT_S  # Log4Shell — always in KEV
+        )
+        data = d.get("data", {})
+        in_kev = data.get("in_kev", False) if isinstance(data, dict) else False
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",  bool(data)),
+            ("in_kev",    in_kev),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_cve_epss() -> dict:
+    tool_name, tool_id = "fetch_cve_epss", "T10"
+    try:
+        from datanexus.tools.t10 import fetch_cve_epss
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_cve_epss(cve_id="CVE-2021-44228"), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        epss_val = data.get("epss") if isinstance(data, dict) else None
+        has_epss = epss_val is not None and isinstance(epss_val, (int, float)) and epss_val > 0
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",  bool(data)),
+            ("has_epss",  has_epss),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_cve_detail_fixed_versions_key() -> dict:
+    """P15-4a regression: _parse_osv_remediation returned 'fixes' not 'fixed_versions'."""
+    tool_name, tool_id = "cve_detail_fixed_versions_key", "T10"
+    try:
+        from datanexus.tools.t10 import fetch_cve_detail
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_cve_detail(cve_id="CVE-2021-44228"), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        remediation = data.get("remediation") if isinstance(data, dict) else None
+        has_fixed_versions = isinstance(remediation, dict) and "fixed_versions" in remediation
+        has_no_fixes_key   = isinstance(remediation, dict) and "fixes" not in remediation
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_fixed_versions", has_fixed_versions),
+            ("no_stale_fixes_key", has_no_fixes_key),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_epss_score_positive() -> dict:
+    """P15-4b regression: EPSS URL was wrong, data.epss was missing/zero."""
+    tool_name, tool_id = "epss_score_positive", "T10"
+    try:
+        from datanexus.tools.t10 import fetch_cve_epss
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_cve_epss(cve_id="CVE-2021-44228"), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        epss_val = data.get("epss") if isinstance(data, dict) else None
+        score_positive = epss_val is not None and isinstance(epss_val, (int, float)) and epss_val > 0
+        return _check(d, tool_id, tool_name, t0, [
+            ("epss_score_positive", score_positive),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_kev_log4shell_in_catalog() -> dict:
+    """P15-4c regression: fetch_cisa_kev live fetch could exceed @with_timeout(8s)."""
+    tool_name, tool_id = "kev_log4shell_in_catalog", "T10"
+    try:
+        from datanexus.tools.t10 import fetch_cisa_kev
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_cisa_kev(cve_id="CVE-2021-44228"), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        in_kev = data.get("in_kev", False) if isinstance(data, dict) else False
+        return _check(d, tool_id, tool_name, t0, [
+            ("log4shell_in_kev", in_kev),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_subdomains_known_domain() -> dict:
+    """P15-4d regression: @with_timeout(8s) blocked crt.sh (5-30s); domain had no CT entries."""
+    tool_name, tool_id = "subdomains_known_domain", "T07"
+    try:
+        from datanexus.tools.t07 import fetch_subdomains
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_subdomains(domain="anthropic.com"), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        count = data.get("count", 0) if isinstance(data, dict) else 0
+        subdomains = data.get("subdomains", []) if isinstance(data, dict) else []
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",         bool(data)),
+            ("count_is_int",     isinstance(count, int)),
+            ("has_subdomains",   len(subdomains) > 0),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_package_vulnerabilities_batch() -> dict:
+    tool_name, tool_id = "fetch_package_vulnerabilities_batch", "T10"
+    try:
+        from datanexus.tools.t10 import fetch_package_vulnerabilities
+        t0 = time.monotonic()
+        packages = [
+            {"name": "lodash", "version": "4.17.20", "ecosystem": "npm"},
+            {"name": "requests", "version": "2.28.0", "ecosystem": "PyPI"},
+        ]
+        d = await asyncio.wait_for(
+            fetch_package_vulnerabilities(packages=packages), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        results = data.get("results", []) if isinstance(data, dict) else []
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",    bool(data)),
+            ("has_results", len(results) > 0),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_cve_detail_remediation() -> dict:
+    tool_name, tool_id = "fetch_cve_detail_remediation", "T10"
+    try:
+        from datanexus.tools.t10 import fetch_cve_detail
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_cve_detail(cve_id="CVE-2021-44228"), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        remediation = data.get("remediation") if isinstance(data, dict) else None
+        has_remediation = isinstance(remediation, dict) and "fixed_versions" in remediation
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",        bool(data)),
+            ("has_remediation", has_remediation),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_subdomains() -> dict:
+    tool_name, tool_id = "fetch_subdomains", "T07"
+    try:
+        from datanexus.tools.t07 import fetch_subdomains
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_subdomains(domain="anthropic.com"), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        subdomains = data.get("subdomains", []) if isinstance(data, dict) else []
+        count = data.get("count", len(subdomains)) if isinstance(data, dict) else len(subdomains)
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",     bool(data)),
+            ("count_present", isinstance(count, int)),
+            ("has_subdomains", len(subdomains) > 0),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_check_email_security() -> dict:
+    tool_name, tool_id = "check_email_security", "T07"
+    try:
+        from datanexus.tools.t07 import check_email_security
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            check_email_security(domain="google.com"), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        grade = data.get("overall_grade", "") if isinstance(data, dict) else ""
+        has_grade = grade in ("A", "B", "C", "D", "F")
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",  bool(data)),
+            ("has_grade", has_grade),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_reverse_ip() -> dict:
+    tool_name, tool_id = "fetch_reverse_ip", "T07"
+    try:
+        from datanexus.tools.t07 import fetch_reverse_ip
+        t0 = time.monotonic()
+        # WordPress.com shared IP — hundreds of co-hosted domains, well above 10
+        d = await asyncio.wait_for(
+            fetch_reverse_ip(domain_or_ip="192.0.78.24"), timeout=TIMEOUT_S
+        )
+        data = d.get("data", {})
+        domains = data.get("domains", []) if isinstance(data, dict) else []
+        count = data.get("count", len(domains)) if isinstance(data, dict) else len(domains)
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",   bool(data)),
+            ("count_gt_10", isinstance(count, int) and count > 10),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
 async def smoke_report_mcpize_link() -> dict:
     tool_name, tool_id = "report_mcpize_link", "META"
     try:
@@ -977,22 +1193,33 @@ _SMOKE_COROUTINES = [
     smoke_fetch_nonprofit_by_ein,
     smoke_search_nonprofits_by_name,
     smoke_fetch_charity_uk,
-    # T10 — Security (5)
+    # T10 — Security (5 original + 4 Sprint 4)
     smoke_fetch_package_vulnerabilities,
     smoke_fetch_cve_detail,
     smoke_fetch_dependency_graph,
     smoke_audit_sbom_vulnerabilities,
     smoke_fetch_package_licence,
+    smoke_fetch_cisa_kev,                         # Sprint 4
+    smoke_fetch_cve_epss,                         # Sprint 4
+    smoke_fetch_package_vulnerabilities_batch,    # Sprint 4
+    smoke_fetch_cve_detail_remediation,           # Sprint 4
+    smoke_cve_detail_fixed_versions_key,          # P15-4a regression
+    smoke_epss_score_positive,                    # P15-4b regression
+    smoke_kev_log4shell_in_catalog,               # P15-4c regression
     # T22 — Compliance (4)
     smoke_fetch_npi_provider,
     smoke_search_npi_by_name,
     smoke_fetch_finra_broker,
     smoke_check_sam_exclusion,
-    # T07 — Domain (4)
+    # T07 — Domain (4 original + 3 Sprint 4)
     smoke_fetch_domain_rdap,
     smoke_fetch_ssl_certificate_chain,
     smoke_fetch_dns_records,
     smoke_fetch_domain_history,
+    smoke_fetch_subdomains,                       # Sprint 4
+    smoke_subdomains_known_domain,                # P15-4d regression
+    smoke_check_email_security,                   # Sprint 4
+    smoke_fetch_reverse_ip,                       # Sprint 4
     # T11 — Legal (6: 4 core + 2 regressions)
     smoke_fetch_patent_by_number,
     smoke_search_patents_by_keyword,
@@ -1015,11 +1242,11 @@ _SMOKE_COROUTINES = [
     smoke_report_mcpize_link,
 ]
 
-assert len(_SMOKE_COROUTINES) == 32, f"Expected 32 smoke tests, got {len(_SMOKE_COROUTINES)}"
+assert len(_SMOKE_COROUTINES) == 43, f"Expected 43 smoke tests, got {len(_SMOKE_COROUTINES)}"
 
 
 async def run_all() -> list:
-    """Run all 30 smoke tests concurrently. Returns list of result dicts."""
+    """Run all 39 smoke tests concurrently. Returns list of result dicts."""
     tasks = [coro() for coro in _SMOKE_COROUTINES]
     raw = await asyncio.gather(*tasks, return_exceptions=True)
 

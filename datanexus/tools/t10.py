@@ -27,6 +27,9 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
+# Sprint 4 additions
+from datanexus.core.cache import get_cached as _get_cached, set_cached as _set_cached
+
 import httpx
 from fastmcp import FastMCP
 
@@ -82,6 +85,14 @@ _NVD_API_KEY = os.environ.get("DATANEXUS_NVD_API_KEY", "")
 # CVE ID format validation
 _CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,}$", re.IGNORECASE)
 
+# Sprint 4 — new upstream constants
+_CISA_KEV_URL  = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+_EPSS_URL      = "https://api.first.org/data/v1/epss"
+_OSV_VULNS_URL = "https://api.osv.dev/v1/vulns"
+_KEV_STALE_H   = 48       # warn if KEV catalog older than 48h
+_EPSS_TTL      = 6 * 3600  # 6h — EPSS recalculates daily, changes slowly intraday
+_BATCH_MAX     = 50        # max packages per OSV querybatch call
+
 # deps.dev system name map (user input → API uppercase system name)
 _DEPS_SYSTEM: dict[str, str] = {
     "pypi":      "PYPI",
@@ -104,16 +115,150 @@ _DEPS_SYSTEM: dict[str, str] = {
 @with_timeout
 @verify_entitlement("T10")
 async def fetch_package_vulnerabilities(
-    package: str,
-    version: str,
-    ecosystem: str,
+    package: Optional[str] = None,
+    version: Optional[str] = None,
+    ecosystem: Optional[str] = None,
+    packages: Optional[list] = None,
 ) -> dict:
-    """Fetch all known CVEs for an open source package version. Read-only. No side effects. Idempotent. package: Package name e.g. requests, lodash. Required. version: Exact version string e.g. 2.28.0. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns CVE ID, severity, CVSS score, affected range, and fixed version for each vulnerability. Use this to check a specific package version. Use security_fetch_cve_detail instead when you have a CVE ID and need full detail. Use security_audit_sbom_vulnerabilities instead when auditing an entire dependency manifest. Verified source: Google OSV.dev + NIST NVD. 1-hour cache."""
+    """Fetch all known CVEs for an open source package version or a batch of packages. Read-only. No side effects. Idempotent. Single-package mode: package (e.g. requests), version (e.g. 2.28.0), ecosystem (PyPI/npm/Maven/Go/Cargo/NuGet/RubyGems). Batch mode: packages array of {name, version, ecosystem} objects — max 50 per call. If packages array is provided and non-empty, batch mode is used and package/version/ecosystem are ignored. Batch returns {results: [...], partial: bool, failed_count: int}. Each result has vuln_count and vulnerabilities list. Returns CVE ID, severity, CVSS score, affected range, and fixed version. Use security_fetch_cve_detail for full detail by CVE ID. Use security_audit_sbom_vulnerabilities for SBOM files. Verified source: Google OSV.dev. 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_package_vulnerabilities", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
     _cache_hit = False
     try:
+        # ── Disambiguation (Sprint 4 spec) ────────────────────────────────────
+        _batch_mode = packages is not None and len(packages) > 0
+        _single_mode = package is not None and version is not None and ecosystem is not None
+
+        if _batch_mode and _single_mode:
+            log.warning("t10.fetch_package_vulnerabilities: both packages[] and "
+                        "package/version/ecosystem provided — packages[] wins")
+
+        if not _batch_mode and not _single_mode:
+            from datanexus.core.audit import AuditContext as _AC, make_params_hash as _mph
+            async with _AC("T10", {}, "1.0") as ctx:
+                return error_response(
+                    error_code=ErrorCode.MISSING_PARAMS,
+                    message=(
+                        "Provide either packages[] array (batch) or "
+                        "package + version + ecosystem (single)."
+                    ),
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=True,
+                    upstream="",
+                    retryable=False,
+                )
+
+        # ── BATCH PATH ────────────────────────────────────────────────────────
+        if _batch_mode:
+            pkg_list = packages[:_BATCH_MAX]
+            if len(packages) > _BATCH_MAX:
+                log.warning("t10.fetch_package_vulnerabilities: batch capped at %d (got %d)",
+                            _BATCH_MAX, len(packages))
+            params = {"batch_hash": __import__("hashlib").sha256(
+                json.dumps(pkg_list, sort_keys=True).encode()
+            ).hexdigest()[:32]}
+
+            async with AuditContext("T10", params, "1.0") as ctx:
+                if is_tripped("osv_dev"):
+                    ctx.set_error(ErrorCode.CIRCUIT_OPEN)
+                    return error_response(
+                        error_code=ErrorCode.CIRCUIT_OPEN,
+                        message="OSV.dev currently unavailable. Try again later.",
+                        query_hash=ctx.query_hash,
+                        retry_after=300,
+                        ingest_healthy=False,
+                        upstream="osv.dev",
+                        retryable=True,
+                    )
+
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
+                    ) as client:
+                        raw_results = await _batch_osv_query(client, pkg_list)
+                except httpx.TimeoutException:
+                    record_failure_sync("osv_dev")
+                    return error_response(
+                        error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                        message="OSV.dev batch query timed out.",
+                        query_hash=ctx.query_hash,
+                        retry_after=30,
+                        ingest_healthy=False,
+                        upstream="osv.dev",
+                        retryable=True,
+                    )
+                except Exception:
+                    record_failure_sync("osv_dev")
+                    log.exception("t10.fetch_package_vulnerabilities batch error")
+                    return error_response(
+                        error_code=ErrorCode.INTERNAL_ERROR,
+                        message="An internal error occurred. Please try again.",
+                        query_hash=ctx.query_hash,
+                        retry_after=0,
+                        ingest_healthy=False,
+                        upstream="osv.dev",
+                        retryable=True,
+                    )
+
+                record_success_sync("osv_dev")
+
+                results = []
+                failed_count = 0
+                for comp, osv_result in zip(pkg_list, raw_results):
+                    try:
+                        safe  = _strip_unsafe_fields(osv_result) if osv_result else {}
+                        vulns = safe.get("vulns", [])
+                        vulns = _fmt_dedup_pysec_ghsa(vulns)
+                        vulns = _fmt_fix_severity_levels(vulns)
+                        results.append({
+                            "name":            comp.get("name", ""),
+                            "version":         comp.get("version", ""),
+                            "ecosystem":       comp.get("ecosystem", ""),
+                            "vulnerabilities": vulns,
+                            "vuln_count":      len(vulns),
+                            "error":           None,
+                        })
+                    except Exception as exc:
+                        failed_count += 1
+                        results.append({
+                            "name":            comp.get("name", ""),
+                            "version":         comp.get("version", ""),
+                            "ecosystem":       comp.get("ecosystem", ""),
+                            "vulnerabilities": [],
+                            "vuln_count":      0,
+                            "error":           "OSV lookup failed",
+                        })
+
+                data_as_of = datetime.now(timezone.utc).isoformat()
+                batch_data = {
+                    "results":      results,
+                    "partial":      failed_count > 0,
+                    "failed_count": failed_count,
+                    "total":        len(results),
+                }
+                markdown = _build_batch_vuln_markdown(batch_data)
+
+                out = {
+                    "status":           "ok",
+                    "tool_id":          "T10",
+                    "source_url":       "https://api.osv.dev/v1/querybatch",
+                    "fetch_timestamp":  data_as_of,
+                    "cache_hit":        False,
+                    "staleness_notice": None,
+                    "sha256_hash":      "",
+                    "data":             batch_data,
+                    "markdown_output":  markdown,
+                    "disclaimer":       T10_DISCLAIMER,
+                    "data_as_of":       data_as_of,
+                    "ingest_healthy":   True,
+                    **standard_response_fields(ctx.query_hash, data_as_of, True),
+                }
+                _success = True
+                return out
+
+        # ── SINGLE-PACKAGE PATH (backward-compatible) ─────────────────────────
         pkg_clean = package.strip()
         ver_clean = version.strip()
         eco_clean = ecosystem.strip()
@@ -122,7 +267,6 @@ async def fetch_package_vulnerabilities(
         async with AuditContext("T10", params, "1.0") as ctx:
             phash = make_params_hash(params)
 
-            # ── 1. Cache check ────────────────────────────────────────────────────
             cached = get_cached("T10", phash)
             if cached:
                 ctx.set_cache_hit(True)
@@ -139,7 +283,6 @@ async def fetch_package_vulnerabilities(
                 _cache_hit = True
                 return _out
 
-            # ── 2. Circuit breaker ────────────────────────────────────────────────
             if is_tripped("osv_dev"):
                 archive = get_cached("T10", phash + "_archive")
                 ctx.set_error(ErrorCode.CIRCUIT_OPEN)
@@ -158,7 +301,6 @@ async def fetch_package_vulnerabilities(
                     **standard_response_fields(ctx.query_hash, "", False),
                 }
 
-            # ── 3. Live fetch — OSV.dev ───────────────────────────────────────────
             osv_ecosystem = _normalise_osv_ecosystem(eco_clean)
             try:
                 async with httpx.AsyncClient(
@@ -175,6 +317,8 @@ async def fetch_package_vulnerabilities(
                     query_hash=ctx.query_hash,
                     retry_after=30,
                     ingest_healthy=False,
+                    upstream="osv.dev",
+                    retryable=True,
                 )
             except httpx.HTTPStatusError:
                 record_failure_sync("osv_dev")
@@ -184,6 +328,8 @@ async def fetch_package_vulnerabilities(
                     query_hash=ctx.query_hash,
                     retry_after=60,
                     ingest_healthy=False,
+                    upstream="osv.dev",
+                    retryable=True,
                 )
             except Exception:
                 record_failure_sync("osv_dev")
@@ -194,15 +340,16 @@ async def fetch_package_vulnerabilities(
                     query_hash=ctx.query_hash,
                     retry_after=0,
                     ingest_healthy=False,
+                    upstream="osv.dev",
+                    retryable=True,
                 )
 
             record_success_sync("osv_dev")
 
             vulns      = osv_data.get("vulns", [])
-            # Phase 0 response-formatter fixes (query-time layer — belt-and-suspenders)
             vulns      = _fmt_dedup_pysec_ghsa(vulns)
             vulns      = _fmt_fix_severity_levels(vulns)
-            osv_data["vulns"] = vulns   # keep osv_data consistent for result_data
+            osv_data["vulns"] = vulns
             raw_bytes  = json.dumps(osv_data).encode()
             phash_val  = _compute_hash(raw_bytes)
             data_as_of = datetime.now(timezone.utc).isoformat()
@@ -262,7 +409,7 @@ async def fetch_dependency_graph(
     version: str,
     ecosystem: str,
 ) -> dict:
-    """Fetch the full dependency tree for a package version including transitive dependencies. Read-only. No side effects. Idempotent. Hard 8-second timeout — large dependency trees may return partial results. package: Package name. Required. version: Exact version string e.g. 1.2.3. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns all direct and transitive dependencies with version constraints. Use this to understand full supply chain exposure. Use security_fetch_package_vulnerabilities instead when you only need CVEs for a single package. Verified source: deps.dev (Google). 1-hour cache."""
+    """Fetch the full dependency tree for a package version including transitive dependencies. Read-only. No side effects. Idempotent. Hard 8-second timeout — large dependency trees may return partial results. package: Package name. Required. version: Exact version string e.g. 1.2.3. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns all direct and transitive dependencies with version constraints. Use this to understand full supply chain exposure. Use security_fetch_package_vulnerabilities instead when you only need CVEs for a single package. Verified source: deps.dev (Google). 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_dependency_graph", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -436,7 +583,7 @@ async def fetch_dependency_graph(
 @with_timeout
 @verify_entitlement("T10")
 async def fetch_cve_detail(cve_id: str) -> dict:
-    """Fetch full detail for a specific CVE by ID. Read-only. No side effects. Idempotent. cve_id: CVE identifier in format CVE-YYYY-NNNNN e.g. CVE-2021-44228. Required. Returns description, CVSS base score, affected products, patch references, and publish date. Use this when you have a CVE ID and need complete detail beyond what a package scan returns. Use security_fetch_package_vulnerabilities instead when you want all CVEs for a package version. Verified source: NIST NVD. 1-hour cache."""
+    """Fetch full detail for a specific CVE by ID. Read-only. No side effects. Idempotent. cve_id: CVE identifier in format CVE-YYYY-NNNNN e.g. CVE-2021-44228. Required. Returns description, CVSS base score, affected products, patch references, and publish date. Use this when you have a CVE ID and need complete detail beyond what a package scan returns. Use security_fetch_package_vulnerabilities instead when you want all CVEs for a package version. Verified source: NIST NVD. 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cve_detail", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -493,26 +640,48 @@ async def fetch_cve_detail(cve_id: str) -> dict:
                     **standard_response_fields(ctx.query_hash, "", False),
                 }
 
-            # ── Live fetch — NIST NVD ─────────────────────────────────────────────
+            # ── Live fetch — NIST NVD + OSV (concurrent for remediation) ─────────
             nvd_headers = {**_HTTP_HEADERS}
             if _NVD_API_KEY:
                 nvd_headers["apiKey"] = _NVD_API_KEY
 
             try:
                 async with httpx.AsyncClient(
-                    timeout=_HTTP_TIMEOUT, headers=nvd_headers, follow_redirects=True,
+                    timeout=_HTTP_TIMEOUT, headers=_HTTP_HEADERS, follow_redirects=True,
                 ) as client:
-                    resp = await client.get(_NVD_URL, params={"cveId": cve_clean})
-                    if resp.status_code == 404:
-                        return error_response(
-                            error_code=ErrorCode.NOT_FOUND,
-                            message=f"{cve_clean} not found in NIST NVD.",
-                            query_hash=ctx.query_hash,
-                            retry_after=0,
-                            ingest_healthy=True,
-                        )
-                    resp.raise_for_status()
-                    nvd_raw = resp.json()
+                    nvd_task = client.get(
+                        _NVD_URL, params={"cveId": cve_clean},
+                        headers=nvd_headers,
+                    )
+                    osv_task = client.get(f"{_OSV_VULNS_URL}/{cve_clean}")
+                    nvd_resp, osv_resp = await asyncio.gather(
+                        nvd_task, osv_task, return_exceptions=True,
+                    )
+
+                # Handle NVD response
+                if isinstance(nvd_resp, Exception):
+                    raise nvd_resp
+                if nvd_resp.status_code == 404:
+                    return error_response(
+                        error_code=ErrorCode.NOT_FOUND,
+                        message=f"{cve_clean} not found in NIST NVD.",
+                        query_hash=ctx.query_hash,
+                        retry_after=0,
+                        ingest_healthy=True,
+                        upstream="nvd.nist.gov",
+                        retryable=False,
+                    )
+                nvd_resp.raise_for_status()
+                nvd_raw = nvd_resp.json()
+
+                # Parse OSV remediation (best-effort; NVD-only is fine)
+                if isinstance(osv_resp, Exception) or osv_resp.status_code == 404:
+                    osv_advisory = None
+                else:
+                    try:
+                        osv_advisory = osv_resp.json() if osv_resp.status_code == 200 else None
+                    except Exception:
+                        osv_advisory = None
 
             except httpx.TimeoutException:
                 record_failure_sync("nist_nvd")
@@ -522,6 +691,8 @@ async def fetch_cve_detail(cve_id: str) -> dict:
                     query_hash=ctx.query_hash,
                     retry_after=30,
                     ingest_healthy=False,
+                    upstream="nvd.nist.gov",
+                    retryable=True,
                 )
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 429:
@@ -531,6 +702,8 @@ async def fetch_cve_detail(cve_id: str) -> dict:
                         query_hash=ctx.query_hash,
                         retry_after=30,
                         ingest_healthy=True,
+                        upstream="nvd.nist.gov",
+                        retryable=True,
                     )
                 record_failure_sync("nist_nvd")
                 return error_response(
@@ -539,6 +712,8 @@ async def fetch_cve_detail(cve_id: str) -> dict:
                     query_hash=ctx.query_hash,
                     retry_after=60,
                     ingest_healthy=False,
+                    upstream="nvd.nist.gov",
+                    retryable=True,
                 )
             except Exception:
                 record_failure_sync("nist_nvd")
@@ -549,11 +724,15 @@ async def fetch_cve_detail(cve_id: str) -> dict:
                     query_hash=ctx.query_hash,
                     retry_after=0,
                     ingest_healthy=False,
+                    upstream="nvd.nist.gov",
+                    retryable=True,
                 )
 
             record_success_sync("nist_nvd")
 
             cve_data   = _parse_nvd_cve(nvd_raw, cve_clean)
+            # Append remediation from OSV (Sprint 4)
+            cve_data["remediation"] = _parse_osv_remediation(osv_advisory)
             raw_bytes  = json.dumps(cve_data).encode()
             phash_val  = _compute_hash(raw_bytes)
             data_as_of = datetime.now(timezone.utc).isoformat()
@@ -608,7 +787,7 @@ async def fetch_cve_detail(cve_id: str) -> dict:
 @with_timeout
 @verify_entitlement("T10")
 async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
-    """Audit a Software Bill of Materials for known vulnerabilities across all listed packages. Read-only. No side effects. Idempotent. sbom_json: CycloneDX or SPDX SBOM as a JSON string. Required. Large SBOMs (100+ packages) may take up to 10 seconds. Returns CVEs grouped by package with severity and fixed versions. Use this when you have a full SBOM to audit. Use security_fetch_package_vulnerabilities instead when checking a single package version. Verified source: Google OSV.dev batch API. 1-hour cache."""
+    """Audit a Software Bill of Materials for known vulnerabilities across all listed packages. Read-only. No side effects. Idempotent. sbom_json: CycloneDX or SPDX SBOM as a JSON string. Required. Large SBOMs (100+ packages) may take up to 10 seconds. Returns CVEs grouped by package with severity and fixed versions. Use this when you have a full SBOM to audit. Use security_fetch_package_vulnerabilities instead when checking a single package version. Verified source: Google OSV.dev batch API. 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_audit_sbom_vulnerabilities", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -756,7 +935,7 @@ async def fetch_package_licence(
     version: str,
     ecosystem: str,
 ) -> dict:
-    """Fetch the SPDX licence identifier for an open source package version. Read-only. No side effects. Idempotent. package: Package name e.g. flask. Required. version: Exact version string e.g. 2.3.0. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns the SPDX licence identifier e.g. MIT, Apache-2.0, GPL-3.0. Use this to verify licence compatibility before including a dependency. Use security_fetch_package_vulnerabilities instead when checking for security issues not licences. Verified source: deps.dev (Google). 1-hour cache."""
+    """Fetch the SPDX licence identifier for an open source package version. Read-only. No side effects. Idempotent. package: Package name e.g. flask. Required. version: Exact version string e.g. 2.3.0. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns the SPDX licence identifier e.g. MIT, Apache-2.0, GPL-3.0. Use this to verify licence compatibility before including a dependency. Use security_fetch_package_vulnerabilities instead when checking for security issues not licences. Verified source: deps.dev (Google). 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_package_licence", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -885,6 +1064,360 @@ async def fetch_package_licence(
         asyncio.create_task(track_tool_call(
             tool_id="T10",
             tool_name="fetch_package_licence",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DATA TOOL 6 — fetch_cisa_kev  (Sprint 4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+@with_timeout
+@verify_entitlement("T10")
+async def fetch_cisa_kev(cve_id: str) -> dict:
+    """Check whether a CVE is in the CISA Known Exploited Vulnerabilities (KEV) catalog. Read-only. No side effects. Idempotent. cve_id: CVE identifier in format CVE-YYYY-NNNNN e.g. CVE-2021-44228. Required. Returns in_kev (bool), date_added, due_date, ransomware_use, and notes from the CISA KEV catalog. KEV status answers 'Is this being actively exploited?' — a critical triage question not available in NIST NVD. Verified source: CISA KEV catalog (updated daily, cached). Use security_fetch_cve_detail for full CVE severity. Use security_fetch_cve_epss for exploit probability. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cisa_kev", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        cve_clean = cve_id.strip().upper()
+        params    = {"cve_id": cve_clean}
+
+        async with AuditContext("T10", params, "1.0") as ctx:
+            if not _CVE_RE.match(cve_clean):
+                return error_response(
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    message="Invalid CVE ID format. Expected CVE-YYYY-NNNNN.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=True,
+                    upstream="",
+                    retryable=False,
+                )
+
+            # ── 1. Load KEV catalog from Redis (datanexus:kev:catalog) ──────────
+            # get_cached("kev", "catalog") → key datanexus:kev:catalog
+            catalog_raw = _get_cached("kev", "catalog")
+            fetched_at_raw = _get_cached("kev", "fetched_at")
+            stale_warning = None
+
+            if catalog_raw:
+                _cache_hit = True
+                # Staleness check: warn if catalog > 48h old
+                if fetched_at_raw and isinstance(fetched_at_raw, dict):
+                    pass  # stored as dict — shouldn't happen, ignore
+                elif fetched_at_raw and isinstance(fetched_at_raw, str):
+                    try:
+                        from datetime import timedelta
+                        fetched_dt = datetime.fromisoformat(fetched_at_raw)
+                        age_h = (datetime.now(timezone.utc) - fetched_dt).total_seconds() / 3600
+                        if age_h > _KEV_STALE_H:
+                            stale_warning = "KEV catalog may be stale"
+                    except Exception:
+                        pass
+
+                # catalog_raw is a dict (from get_cached which json.loads)
+                if isinstance(catalog_raw, dict) and "vulnerabilities" in catalog_raw:
+                    kev_data = catalog_raw
+                else:
+                    kev_data = None
+            else:
+                # Redis miss or outage — fall through to direct fetch
+                kev_data = None
+
+            if kev_data is None:
+                # Direct upstream fetch with circuit breaker
+                if is_tripped("cisa_gov"):
+                    return error_response(
+                        error_code=ErrorCode.CIRCUIT_OPEN,
+                        message="CISA KEV temporarily unavailable. Try again later.",
+                        query_hash=ctx.query_hash,
+                        retry_after=900,
+                        ingest_healthy=False,
+                        upstream="cisa.gov",
+                        retryable=True,
+                    )
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=httpx.Timeout(7.0, connect=3.0),
+                        headers=_HTTP_HEADERS,
+                        follow_redirects=True,
+                    ) as client:
+                        resp = await client.get(_CISA_KEV_URL)
+                        resp.raise_for_status()
+                        kev_data = resp.json()
+                    record_success_sync("cisa_gov")
+                    # Store in Redis for next call
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    _set_cached("kev", "catalog", kev_data, 25 * 3600)
+                    _set_cached("kev", "fetched_at", now_iso, 25 * 3600)
+                except httpx.TimeoutException:
+                    record_failure_sync("cisa_gov")
+                    return error_response(
+                        error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                        message="CISA KEV timed out. Try again shortly.",
+                        query_hash=ctx.query_hash,
+                        retry_after=30,
+                        ingest_healthy=False,
+                        upstream="cisa.gov",
+                        retryable=True,
+                    )
+                except Exception:
+                    record_failure_sync("cisa_gov")
+                    log.exception("t10.fetch_cisa_kev live fetch failed cve=%s", cve_clean)
+                    return error_response(
+                        error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
+                        message="CISA KEV temporarily unavailable.",
+                        query_hash=ctx.query_hash,
+                        retry_after=60,
+                        ingest_healthy=False,
+                        upstream="cisa.gov",
+                        retryable=True,
+                    )
+
+            # ── 2. Look up CVE in catalog ──────────────────────────────────────
+            vulns = kev_data.get("vulnerabilities", [])
+            entry = next(
+                (v for v in vulns if v.get("cveID", "").upper() == cve_clean),
+                None,
+            )
+
+            if entry:
+                result = {
+                    "in_kev":          True,
+                    "cve_id":          cve_clean,
+                    "date_added":      entry.get("dateAdded", ""),
+                    "due_date":        entry.get("dueDate", ""),
+                    "ransomware_use":  entry.get("knownRansomwareCampaignUse", ""),
+                    "notes":           entry.get("notes", ""),
+                    "vulnerability_name": entry.get("vulnerabilityName", ""),
+                    "vendor_project":  entry.get("vendorProject", ""),
+                    "product":         entry.get("product", ""),
+                    "source":          "cisa.gov",
+                }
+            else:
+                result = {
+                    "in_kev":   False,
+                    "cve_id":   cve_clean,
+                    "source":   "cisa.gov",
+                }
+            if stale_warning:
+                result["warning"] = stale_warning
+
+            data_as_of = datetime.now(timezone.utc).isoformat()
+            markdown   = _build_kev_markdown(result, cve_clean)
+
+            out = {
+                "status":           "ok",
+                "tool_id":          "T10",
+                "source_url":       "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+                "fetch_timestamp":  data_as_of,
+                "cache_hit":        _cache_hit,
+                "staleness_notice": None,
+                "sha256_hash":      "",
+                "data":             result,
+                "markdown_output":  markdown,
+                "disclaimer":       T10_DISCLAIMER,
+                "data_as_of":       data_as_of,
+                "ingest_healthy":   True,
+                **standard_response_fields(ctx.query_hash, data_as_of, True),
+            }
+            _success = True
+            return out
+
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T10",
+            tool_name="fetch_cisa_kev",
+            success=_success,
+            latency_ms=_ms,
+            cache_hit=_cache_hit,
+            error_code=_error_code,
+        ))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DATA TOOL 7 — fetch_cve_epss  (Sprint 4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@mcp.tool()
+@with_timeout
+@verify_entitlement("T10")
+async def fetch_cve_epss(cve_id: str) -> dict:
+    """Fetch the EPSS (Exploit Prediction Scoring System) probability score for a CVE. Read-only. No side effects. Idempotent. cve_id: CVE identifier in format CVE-YYYY-NNNNN e.g. CVE-2021-44228. Required. Returns epss probability (0.0-1.0) and percentile rank. EPSS answers 'How likely is this to be exploited in the next 30 days?' — CVSS measures severity, EPSS measures urgency. CVE with CVSS 9.8 but EPSS 0.02 is theoretical risk. CVSS 7.5 with EPSS 0.94 needs immediate action. Verified source: FIRST.org EPSS API. 6-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cve_epss", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    _t0 = time.monotonic()
+    _success = False
+    _error_code = None
+    _cache_hit = False
+    try:
+        cve_clean = cve_id.strip().upper()
+        params    = {"cve_id": cve_clean}
+
+        async with AuditContext("T10", params, "1.0") as ctx:
+            if not _CVE_RE.match(cve_clean):
+                return error_response(
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    message="Invalid CVE ID format. Expected CVE-YYYY-NNNNN.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=True,
+                    upstream="",
+                    retryable=False,
+                )
+
+            # ── 1. Cache check (datanexus:epss:{cve_id}, TTL 6h) ──────────────
+            # Use get_cached("epss", cve_clean) → key datanexus:epss:{cve_clean}
+            cached = _get_cached("epss", cve_clean)
+            if cached and isinstance(cached, dict) and "epss" in cached:
+                _cache_hit = True
+                _success = True
+                data_as_of = cached.get("date", datetime.now(timezone.utc).isoformat())
+                out = {
+                    "status":          "ok",
+                    "tool_id":         "T10",
+                    "source_url":      "https://api.first.org/epss",
+                    "fetch_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "cache_hit":       True,
+                    "staleness_notice": None,
+                    "sha256_hash":     "",
+                    "data":            cached,
+                    "markdown_output": _build_epss_markdown(cached),
+                    "disclaimer":      T10_DISCLAIMER,
+                    "data_as_of":      data_as_of,
+                    "ingest_healthy":  True,
+                    **standard_response_fields(ctx.query_hash, data_as_of, True),
+                }
+                return out
+
+            # ── 2. Live fetch from first.org (no stale serving — accuracy matters) ──
+            if is_tripped("first_org"):
+                return error_response(
+                    error_code=ErrorCode.CIRCUIT_OPEN,
+                    message="FIRST.org EPSS temporarily unavailable. Try again later.",
+                    query_hash=ctx.query_hash,
+                    retry_after=900,
+                    ingest_healthy=False,
+                    upstream="first.org",
+                    retryable=True,
+                )
+
+            try:
+                async with httpx.AsyncClient(
+                    timeout=_HTTP_TIMEOUT,
+                    headers=_HTTP_HEADERS,
+                    follow_redirects=True,
+                ) as client:
+                    resp = await client.get(_EPSS_URL, params={"cve": cve_clean})
+                    resp.raise_for_status()
+                    raw = resp.json()
+            except httpx.TimeoutException:
+                record_failure_sync("first_org")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_TIMEOUT,
+                    message="FIRST.org EPSS timed out. Try again shortly.",
+                    query_hash=ctx.query_hash,
+                    retry_after=30,
+                    ingest_healthy=False,
+                    upstream="first.org",
+                    retryable=True,
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    return error_response(
+                        error_code=ErrorCode.NOT_FOUND,
+                        message=f"{cve_clean} not found in EPSS database.",
+                        query_hash=ctx.query_hash,
+                        retry_after=0,
+                        ingest_healthy=True,
+                        upstream="first.org",
+                        retryable=False,
+                    )
+                record_failure_sync("first_org")
+                return error_response(
+                    error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
+                    message="FIRST.org EPSS temporarily unavailable.",
+                    query_hash=ctx.query_hash,
+                    retry_after=60,
+                    ingest_healthy=False,
+                    upstream="first.org",
+                    retryable=True,
+                )
+            except Exception:
+                record_failure_sync("first_org")
+                log.exception("t10.fetch_cve_epss error cve=%s", cve_clean)
+                return error_response(
+                    error_code=ErrorCode.INTERNAL_ERROR,
+                    message="An internal error occurred. Please try again.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=False,
+                    upstream="first.org",
+                    retryable=True,
+                )
+
+            record_success_sync("first_org")
+
+            data_items = raw.get("data", [])
+            if not data_items:
+                return error_response(
+                    error_code=ErrorCode.NOT_FOUND,
+                    message=f"{cve_clean} not found in EPSS database.",
+                    query_hash=ctx.query_hash,
+                    retry_after=0,
+                    ingest_healthy=True,
+                    upstream="first.org",
+                    retryable=False,
+                )
+
+            item = data_items[0]
+            epss_data = {
+                "cve":           item.get("cve", cve_clean),
+                "epss":          float(item.get("epss", 0)),
+                "percentile":    float(item.get("percentile", 0)),
+                "model_version": raw.get("version", ""),
+                "date":          item.get("date", ""),
+                "source":        "first.org",
+            }
+
+            # Store in Redis (do NOT serve stale — accuracy matters)
+            _set_cached("epss", cve_clean, epss_data, _EPSS_TTL)
+
+            data_as_of = epss_data["date"] or datetime.now(timezone.utc).isoformat()
+            out = {
+                "status":          "ok",
+                "tool_id":         "T10",
+                "source_url":      "https://api.first.org/epss",
+                "fetch_timestamp": datetime.now(timezone.utc).isoformat(),
+                "cache_hit":       False,
+                "staleness_notice": None,
+                "sha256_hash":     "",
+                "data":            epss_data,
+                "markdown_output": _build_epss_markdown(epss_data),
+                "disclaimer":      T10_DISCLAIMER,
+                "data_as_of":      data_as_of,
+                "ingest_healthy":  True,
+                **standard_response_fields(ctx.query_hash, data_as_of, True),
+            }
+            _success = True
+            return out
+
+    except Exception as e:
+        _error_code = getattr(e, "error_code", type(e).__name__)
+        raise
+    finally:
+        _ms = int((time.monotonic() - _t0) * 1000)
+        asyncio.create_task(track_tool_call(
+            tool_id="T10",
+            tool_name="fetch_cve_epss",
             success=_success,
             latency_ms=_ms,
             cache_hit=_cache_hit,
@@ -1397,6 +1930,20 @@ def _build_cve_markdown(data: dict) -> str:
         data.get("description", ""),
         "",
     ]
+
+    # Sprint 4: remediation block
+    rem = data.get("remediation")
+    if rem is not None:
+        if rem.get("patch_available") is None:
+            lines += ["### Remediation", "No OSV advisory found — patch status unknown.", ""]
+        elif rem.get("patch_available"):
+            lines += ["### Remediation", "**Patch available.** Upgrade to:"]
+            for fix in rem.get("fixed_versions", [])[:10]:
+                lines.append(f"- **{fix.get('package','')}** ({fix.get('ecosystem','')}) → `{fix.get('upgrade_to','')}`")
+            lines.append("")
+        else:
+            lines += ["### Remediation", "No fix version recorded in OSV at this time.", ""]
+
     refs = data.get("references", [])
     if refs:
         lines += ["### References"]
@@ -1466,3 +2013,114 @@ def _archive_markdown(
         "Serving last known scan.\n\n"
         f"*{T10_DISCLAIMER}*"
     )
+
+
+# ── Sprint 4 helpers ──────────────────────────────────────────────────────────
+
+def _parse_osv_remediation(osv_advisory: Optional[dict]) -> dict:
+    """Extract remediation/fix data from an OSV advisory response.
+
+    Returns:
+      {patch_available: true,  fixed_versions: [{package, ecosystem, upgrade_to}]} — fix found
+      {patch_available: false, fixed_versions: []}                                  — advisory exists, no fix
+      {patch_available: null,  fixed_versions: null}                                — not in OSV (NVD-only)
+    """
+    if osv_advisory is None:
+        return {"patch_available": None, "fixed_versions": None}
+
+    fixes = []
+    for affected in osv_advisory.get("affected", []):
+        pkg_info = affected.get("package", {})
+        pkg_name = pkg_info.get("name", "")
+        pkg_eco  = pkg_info.get("ecosystem", "")
+        for rng in affected.get("ranges", []):
+            if rng.get("type", "") == "GIT":
+                continue   # git commit ranges — not useful as upgrade_to
+            for event in rng.get("events", []):
+                fixed_ver = event.get("fixed")
+                if fixed_ver:
+                    fixes.append({
+                        "package":    pkg_name,
+                        "ecosystem":  pkg_eco,
+                        "upgrade_to": fixed_ver,
+                    })
+
+    # Deduplicate (same package may appear in multiple ranges)
+    seen = set()
+    deduped = []
+    for f in fixes:
+        key = (f["package"], f["ecosystem"], f["upgrade_to"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(f)
+
+    return {"patch_available": len(deduped) > 0, "fixed_versions": deduped}
+
+
+def _build_kev_markdown(result: dict, cve_id: str) -> str:
+    lines = [f"## CISA KEV — {cve_id}", ""]
+    if result.get("in_kev"):
+        lines += [
+            "**Status: IN KEV** — This CVE is actively exploited.",
+            "",
+            "| Field | Value |",
+            "|-------|-------|",
+            f"| Date Added | {result.get('date_added', '')} |",
+            f"| Due Date | {result.get('due_date', '')} |",
+            f"| Ransomware Use | {result.get('ransomware_use', '')} |",
+        ]
+        vname = result.get("vulnerability_name", "")
+        if vname:
+            lines.append(f"| Vulnerability | {vname} |")
+        notes = result.get("notes", "")
+        if notes:
+            lines += ["", f"**Notes:** {notes[:300]}"]
+    else:
+        lines.append("**Status: NOT in KEV** — No active exploitation recorded by CISA.")
+    if result.get("warning"):
+        lines += ["", f"> ⚠ {result['warning']}"]
+    lines += ["", f"*{T10_DISCLAIMER}*"]
+    return "\n".join(lines)
+
+
+def _build_epss_markdown(data: dict) -> str:
+    epss = data.get("epss", 0.0)
+    pct  = data.get("percentile", 0.0)
+    urgency = "CRITICAL" if epss >= 0.9 else ("HIGH" if epss >= 0.5 else ("MEDIUM" if epss >= 0.1 else "LOW"))
+    lines = [
+        f"## EPSS — {data.get('cve', '')}",
+        "",
+        f"**EPSS Score:** {epss:.4f}  |  **Percentile:** {pct:.1%}  |  **Urgency:** {urgency}",
+        f"**Date:** {data.get('date', '')}",
+        "",
+        "EPSS = probability of exploitation in the next 30 days.",
+        "CVSS measures severity; EPSS measures urgency.",
+        "",
+        f"*{T10_DISCLAIMER}*",
+    ]
+    return "\n".join(lines)
+
+
+def _build_batch_vuln_markdown(data: dict) -> str:
+    results = data.get("results", [])
+    failed  = data.get("failed_count", 0)
+    lines = [
+        "## Batch Vulnerability Scan",
+        "",
+        f"**Packages scanned:** {len(results)}  |  **Failed:** {failed}",
+        "",
+        "| Package | Version | Ecosystem | Vulns | Status |",
+        "|---------|---------|-----------|-------|--------|",
+    ]
+    for r in results:
+        status = "FAILED" if r.get("error") else (
+            f"{r.get('vuln_count', 0)} vuln(s)"
+        )
+        lines.append(
+            f"| {r.get('name','')} | {r.get('version','')} "
+            f"| {r.get('ecosystem','')} | {r.get('vuln_count',0)} | {status} |"
+        )
+    if data.get("partial"):
+        lines += ["", f"> {failed} package(s) could not be checked (OSV lookup failed)."]
+    lines += ["", f"*{T10_DISCLAIMER}*"]
+    return "\n".join(lines)
