@@ -93,6 +93,52 @@ _INJECTION_PATTERNS = (
     "disregard",
 )
 
+# Country codes accepted by EPO OPS EPODOC cross-reference lookup.
+# EP and WO are EPO-native; all others are cross-country references.
+_EPODOC_COUNTRY_PREFIXES: frozenset = frozenset({
+    "EP", "WO",                                         # EPO native
+    "CN", "JP", "KR", "US", "DE", "FR", "GB", "AU",    # major filing offices
+    "CA", "IN", "RU", "BR", "MX", "CH", "AT", "NL",
+    "SE", "IT", "ES", "PL", "BE", "DK", "FI", "NO",
+    "PT", "HU", "CZ", "SK", "RO", "BG", "HR", "SI",
+    "TW", "IL", "ZA", "SG",
+})
+
+
+def _normalize_epodoc(patent_clean: str) -> tuple:
+    """
+    Normalize a patent number string to a valid EPO EPODOC identifier.
+
+    Returns ``(epodoc_id, country_code)`` where ``epodoc_id`` can be passed
+    directly to the EPO OPS ``/published-data/publication/epodoc/{id}/``
+    endpoint, and ``country_code`` is the 2-letter authority prefix.
+
+    Examples:
+      "EP1000000"     → ("EP1000000", "EP")     standard EP patent
+      "WO2020123456"  → ("WO2020123456", "WO")  PCT application
+      "CN120586032"   → ("CN120586032", "CN")   Chinese patent — used as-is
+      "EPCN120586032" → ("CN120586032", "CN")   malformed: EP prepended to CN
+      "1000000"       → ("EP1000000", "EP")     bare number — assume EP
+
+    Root cause of the EPCN bug: callers were passing the full EPODOC identifier
+    (e.g. "CN120586032") but the tool additionally prepended the jurisdiction
+    kind code ("EP"), producing "EPCN120586032" which EPO OPS rejects as 400.
+    """
+    if len(patent_clean) >= 2:
+        prefix = patent_clean[:2]
+        if prefix in _EPODOC_COUNTRY_PREFIXES:
+            if prefix in ("EP", "WO"):
+                # Check for malformed "EP" + <other country> compound, e.g. "EPCN120586032"
+                remainder = patent_clean[2:]
+                if len(remainder) >= 2 and remainder[:2] in _EPODOC_COUNTRY_PREFIXES:
+                    # Strip the erroneous leading "EP"/"WO" — use the embedded identifier
+                    inner_country = remainder[:2]
+                    return remainder, inner_country
+            # Standard: "EP1000000", "CN120586032", "JP2020123456", etc.
+            return patent_clean, prefix
+    # Bare number with no recognisable prefix — assume EP
+    return f"EP{patent_clean}", "EP"
+
 
 def _validate_canary(markdown_output: str) -> None:
     """Raise ValueError if any injection pattern is found in markdown_output."""
@@ -336,7 +382,7 @@ def _source_limitation(reason: str) -> str:
 @with_timeout
 @verify_entitlement("T11")
 async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -> dict:
-    """Fetch full patent details by patent number and jurisdiction. Read-only. No side effects. Idempotent. patent_number: Patent number in jurisdiction format e.g. EP1000000 for European, US10000000 for USPTO, WO2020123456 for PCT. Required. jurisdiction: One of EP (EPO), US (USPTO), or WO (WIPO PCT). Required. Default EP. Returns title, abstract, inventors, assignees, filing date, claims summary, and citation count. Use this when you have a specific patent number. Use legal_search_patents_by_keyword instead when you only have keywords and need to find patents. Verified source: EPO OPS + USPTO. 24-hour cache."""
+    """Fetch full patent details by patent number and jurisdiction. Read-only. No side effects. Idempotent. patent_number: Patent number in EPODOC format e.g. EP1000000 for European, CN120586032 for Chinese, JP2020123456 for Japanese, WO2020123456 for PCT, US10000000 for US. Required. jurisdiction: Optional hint — one of EP, CN, JP, KR, US, WO, etc. Default EP. The tool normalises the patent number automatically; passing CN120586032 with jurisdiction EP is valid. Returns title, abstract, inventors, assignees, filing date, claims summary, and citation count. Use this when you have a specific patent number. Use legal_search_patents_by_keyword instead when you only have keywords and need to find patents. Verified source: EPO OPS. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="legal_fetch_patent_by_number", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -360,16 +406,15 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
         source_used = ""
         staleness: list[str] = []
 
-        # ── Try EPO OPS for EP/WO jurisdiction ───────────────────────────────
-        if juris_clean in ("EP", "WO") and not is_tripped("epo_ops"):
+        # ── Try EPO OPS (supports EP, WO, and cross-country EPODOC lookups) ────
+        epodoc_id, country_code = _normalize_epodoc(patent_clean)
+        if country_code in _EPODOC_COUNTRY_PREFIXES and not is_tripped("epo_ops"):
             token = _get_epo_token()
             if token:
                 try:
-                    epo_num = patent_clean.lstrip("EP").lstrip("WO")
-                    epo_kind = "EP" if juris_clean == "EP" else "WO"
                     url = (
                         f"{EPO_OPS_URL}/published-data/publication/"
-                        f"epodoc/{epo_kind}{epo_num}/biblio"
+                        f"epodoc/{epodoc_id}/biblio"
                     )
                     async with httpx.AsyncClient(
                         timeout=_HTTP_TIMEOUT, headers=_HEADERS
@@ -491,7 +536,7 @@ async def search_patents_by_keyword(
     jurisdiction: str = "EP",
     date_from: str = "",
 ) -> dict:
-    """Search patents by keyword across EPO, USPTO, or WIPO. Read-only. No side effects. Idempotent. Returns up to 10 matches. keywords: Search terms describing the invention e.g. neural network image classification. Required. jurisdiction: One of EP, US, or WO. Optional. Default EP. date_from: Earliest filing date in ISO 8601 format e.g. 2020-01-31. Optional, defaults to no lower bound. Returns patent numbers, titles, and filing dates. Use this when finding prior art or exploring a technology landscape without a specific number. Use legal_fetch_patent_by_number instead when you have the patent number already. Verified source: EPO OPS + USPTO. 24-hour cache."""
+    """Search patents by keyword across EPO, USPTO, or WIPO. Read-only. No side effects. Idempotent. Returns up to 10 matches. keywords: Search terms describing the invention e.g. neural network image classification. Required. jurisdiction: One of EP, US, or WO. Optional. Default EP. date_from: Earliest filing date in ISO 8601 format e.g. 2020-01-31. Optional, defaults to no lower bound. Returns patent numbers, titles, and filing dates. Use this when finding prior art or exploring a technology landscape without a specific number. Use legal_fetch_patent_by_number instead when you have the patent number already. Verified source: EPO OPS + USPTO. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="legal_search_patents_by_keyword", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -656,7 +701,7 @@ async def fetch_patent_citations(
     patent_number: str,
     jurisdiction: str = "EP",
 ) -> dict:
-    """Fetch forward and backward citation chains for a specific patent. Read-only. No side effects. Idempotent. patent_number: Patent number in jurisdiction format e.g. EP1000000, US10000000. Required. jurisdiction: One of EP, US, or WO. Optional. Default EP. Returns citing patents (forward citations) and cited patents (backward citations) with filing dates and titles. Use this when building a prior art citation chain for a specific patent you already have. Use legal_search_patents_by_keyword instead when you need to find patents by topic not by citation. Verified source: EPO OPS. 24-hour cache."""
+    """Fetch forward and backward citation chains for a specific patent. Read-only. No side effects. Idempotent. patent_number: Patent number in EPODOC format e.g. EP1000000 for European, CN120586032 for Chinese, JP2020123456 for Japanese, WO2020123456 for PCT, US10000000 for US. Required. jurisdiction: Optional hint — one of EP, US, WO, CN, JP, KR, etc. Default EP. The tool normalises the patent number automatically; passing CN120586032 with jurisdiction EP is valid. Returns citing patents (forward citations) and cited patents (backward citations) with filing dates and titles. Use this when building a prior art citation chain for a specific patent you already have. Use legal_search_patents_by_keyword instead when you need to find patents by topic not by citation. Verified source: EPO OPS. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="legal_fetch_patent_citations", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -682,15 +727,14 @@ async def fetch_patent_citations(
         staleness: list[str] = []
 
         # ── EPO OPS citations endpoint ────────────────────────────────────────
-        if juris_clean in ("EP", "WO") and not is_tripped("epo_ops"):
+        epodoc_id, country_code = _normalize_epodoc(patent_clean)
+        if country_code in _EPODOC_COUNTRY_PREFIXES and not is_tripped("epo_ops"):
             token = _get_epo_token()
             if token:
                 try:
-                    epo_num = patent_clean.lstrip("EP").lstrip("WO")
-                    epo_kind = "EP" if juris_clean == "EP" else "WO"
                     url = (
                         f"{EPO_OPS_URL}/published-data/publication/"
-                        f"epodoc/{epo_kind}{epo_num}/citations"
+                        f"epodoc/{epodoc_id}/citations"
                     )
                     async with httpx.AsyncClient(
                         timeout=_HTTP_TIMEOUT, headers=_HEADERS
@@ -776,7 +820,8 @@ async def fetch_patent_citations(
             for c in cited_by
         ) or "None found"
 
-        md = f"""## Citations — {patent_clean} ({juris_clean})
+        display_num = epodoc_id if epodoc_id != patent_clean else patent_clean
+        md = f"""## Citations — {display_num} ({country_code})
 
 **Source:** {source_used}
 
@@ -833,7 +878,7 @@ async def fetch_inventor_portfolio(
     inventor_name: str,
     assignee: str = "",
 ) -> dict:
-    """Fetch the patent portfolio for a named inventor with optional assignee filter. Read-only. No side effects. Idempotent. inventor_name: Inventor surname or full name e.g. Smith or John Smith. Required. Fuzzy match — common names may return many results. assignee: Company or organisation name to narrow results e.g. Apple Inc. Optional. Returns patent numbers, titles, filing dates, jurisdictions, and current status. Use this when researching an inventor's work or a company's patent portfolio. Use legal_search_patents_by_keyword instead when you need patents by topic not by inventor. Verified source: EPO OPS + USPTO. 24-hour cache."""
+    """Fetch the patent portfolio for a named inventor with optional assignee filter. Read-only. No side effects. Idempotent. inventor_name: Inventor surname or full name e.g. Smith or John Smith. Required. Fuzzy match — common names may return many results. assignee: Company or organisation name to narrow results e.g. Apple Inc. Optional. Returns patent numbers, titles, filing dates, jurisdictions, and current status. Use this when researching an inventor's work or a company's patent portfolio. Use legal_search_patents_by_keyword instead when you need patents by topic not by inventor. Verified source: EPO OPS + USPTO. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="legal_fetch_inventor_portfolio", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None

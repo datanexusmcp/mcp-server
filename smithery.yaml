@@ -29,28 +29,34 @@ categories:
   - security
 
 tags:
+  - security
+  - cve
+  - vulnerability
+  - devsecops
+  - kev
+  - sbom
+  - compliance
+  - legal
+  - patents
+  - government-contracts
   - nonprofit
   - EIN
   - IRS
   - charity
   - UK-charity
   - CCEW
-  - CVE
   - OSV
-  - SBOM
   - CycloneDX
   - SPDX
   - dependency-graph
   - NIST-NVD
   - CVSS
-  - vulnerability
   - NPI
   - FINRA
   - SAM
   - RDAP
   - DNS
   - SSL
-  - patent
   - EPO
   - USPTO
   - GovCon

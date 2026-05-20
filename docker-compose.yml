@@ -43,6 +43,28 @@ services:
     volumes:
       - pg-data:/var/lib/postgresql/data
 
+  # ---------- KEV refresh (Sprint 4) ----------------------------------------
+  kev-refresh:
+    build: .
+    restart: always
+    command: python -m datanexus.kev_refresh
+    env_file: /app/.env
+    environment:
+      DATANEXUS_REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+
+  # ---------- Daily digest (Sprint 5) ----------------------------------------
+  daily-digest:
+    build: .
+    restart: always
+    command: python -m datanexus.jobs.daily_digest
+    env_file: /app/.env
+    environment:
+      DATANEXUS_REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+
   # ---------- Caddy (TLS termination) ---------------------------------------
   caddy:
     image: caddy:2-alpine

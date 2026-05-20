@@ -12,6 +12,21 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, field_validator, HttpUrl
 
+# Lazy import to avoid circular dependencies; imported inside error_response()
+# when needed so startup never fails if failure_classifier is unavailable.
+_failure_classifier = None
+
+
+def _get_failure_classifier():
+    global _failure_classifier
+    if _failure_classifier is None:
+        try:
+            from datanexus.core import failure_classifier as _fc
+            _failure_classifier = _fc
+        except Exception:
+            pass
+    return _failure_classifier
+
 
 class DataNexusResponse(BaseModel):
     """Base response model inherited (or dict-spread) by every tool."""
@@ -90,6 +105,9 @@ class ErrorCode:
     INTERNAL_ERROR        = "internal_error"
     CIRCUIT_OPEN          = "circuit_open"
     NOT_FOUND             = "not_found"
+    MISSING_PARAMS        = "missing_params"
+    IPV6_NOT_SUPPORTED    = "ipv6_not_supported"
+    INVALID_FORMAT        = "invalid_format"  # Sprint 5: format normalization failures
 
 
 def error_response(
@@ -98,13 +116,48 @@ def error_response(
     query_hash: str = "",
     retry_after: int = 0,
     ingest_healthy: bool = False,
+    upstream: str = "",
+    retryable: bool = False,
+    tool_id: str = "",
+    exc_type: Optional[str] = None,
+    exc_info: Optional[str] = None,
+    user_agent: str = "",
 ) -> dict:
-    """Return a structured error dict. Never raise from tool handlers."""
-    return {
+    """Return a structured error dict. Never raise from tool handlers.
+
+    upstream:   e.g. "cisa.gov", "first.org", "crt.sh" — which upstream failed.
+    retryable:  True = caller should retry after retry_after seconds.
+    tool_id:    Sprint 5 — passed to failure classifier for daily digest.
+    exc_type:   Exception class name for classifier decision tree (optional).
+    exc_info:   Traceback string for classifier (optional, values are redacted).
+    user_agent: HTTP User-Agent from the caller (optional).
+    All pre-Sprint-5 callers omitting new args get safe defaults.
+    """
+    result = {
         "status":         "error",
         "error_code":     error_code,
         "message":        message,
         "retry_after":    retry_after,
         "query_hash":     query_hash,
         "ingest_healthy": ingest_healthy,
+        "upstream":       upstream,
+        "retryable":      retryable,
     }
+
+    # Sprint 5 Layer 1: classify and record every failure — never blocks response
+    try:
+        fc = _get_failure_classifier()
+        if fc is not None:
+            fc.record_failure(
+                error_code=error_code,
+                upstream=upstream,
+                tool_id=tool_id,
+                params_hash=query_hash,
+                exc_info=exc_info,
+                user_agent=user_agent,
+                exc_type=exc_type,
+            )
+    except Exception:
+        pass  # classifier must never affect the response
+
+    return result

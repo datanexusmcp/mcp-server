@@ -421,6 +421,54 @@ async def canary_usaspending(client: httpx.AsyncClient) -> dict:
         return _result(source, tool_id, "FAIL", lat, "USASpending search success", error=str(exc))
 
 
+async def canary_cisa_kev(client: httpx.AsyncClient) -> dict:
+    """T10 — CISA KEV: fetch catalog JSON, assert HTTP 200 + vulnerabilities key."""
+    source, tool_id = "cisa_kev", "T10"
+    t0 = time.monotonic()
+    try:
+        resp = await client.get(
+            "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+            headers={"User-Agent": "DataNexus MCP/1.0 (datanexusmcp.com)"},
+            timeout=httpx.Timeout(30.0, connect=10.0),
+        )
+        lat = int((time.monotonic() - t0) * 1000)
+        resp.raise_for_status()
+        data = resp.json()
+        if "vulnerabilities" in data:
+            count = len(data["vulnerabilities"])
+            return _result(source, tool_id, "PASS", lat,
+                           f"CISA KEV catalog returned {count} vulnerabilities")
+        return _result(source, tool_id, "FAIL", lat, "CISA KEV vulnerabilities key present",
+                       error=f"Missing vulnerabilities key; got: {list(data.keys())}")
+    except Exception as exc:
+        lat = int((time.monotonic() - t0) * 1000)
+        return _result(source, tool_id, "FAIL", lat, "CISA KEV catalog fetch success", error=str(exc))
+
+
+async def canary_epss(client: httpx.AsyncClient) -> dict:
+    """T10 — FIRST EPSS: GET api.first.org/epss?cve=CVE-2021-44228, assert HTTP 200 + data key."""
+    source, tool_id = "first_epss", "T10"
+    t0 = time.monotonic()
+    try:
+        resp = await client.get(
+            "https://api.first.org/data/v1/epss",
+            params={"cve": "CVE-2021-44228"},
+            timeout=httpx.Timeout(15.0, connect=5.0),
+        )
+        lat = int((time.monotonic() - t0) * 1000)
+        resp.raise_for_status()
+        data = resp.json()
+        if "data" in data and data["data"]:
+            epss_val = data["data"][0].get("epss", "?")
+            return _result(source, tool_id, "PASS", lat,
+                           f"FIRST EPSS returned epss={epss_val} for CVE-2021-44228")
+        return _result(source, tool_id, "FAIL", lat, "FIRST EPSS data key non-empty",
+                       error=f"data={data.get('data', [])!r}")
+    except Exception as exc:
+        lat = int((time.monotonic() - t0) * 1000)
+        return _result(source, tool_id, "FAIL", lat, "FIRST EPSS API fetch success", error=str(exc))
+
+
 async def canary_regulations_gov(client: httpx.AsyncClient) -> dict:
     """T19 — Regulations.gov: fetch 5 EPA documents, expect data array."""
     source, tool_id = "regulations_gov", "T19"
@@ -488,6 +536,8 @@ _CANARIES = [
     canary_osv,
     canary_nist_nvd,
     canary_deps_dev,
+    canary_cisa_kev,      # Sprint 4 — T10 CISA KEV
+    canary_epss,          # Sprint 4 — T10 FIRST EPSS
     canary_nppes_npi,
     canary_finra,
     canary_sam_gov,

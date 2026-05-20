@@ -1,18 +1,20 @@
 """
-DataNexus MCP — Sprint 3 P01 entry point.
+DataNexus MCP — Sprint 4 entry point.
 
-Spec:      DataNexus_MCP_Spec_v7_5.docx (authoritative)
+Spec:      DataNexus_MCP_Spec_v7_6.docx (authoritative)
 Transport: streamable-http (CLAUDE.md rule — SSE deprecated April 2026)
 Server:    datanexusmcp.com  |  Hetzner CAX11  |  178.104.251.70
 
-Registered tools (29 total):
+Registered tools (35 total):
   nonprofit  (3): nonprofit_fetch_nonprofit_by_ein, nonprofit_search_nonprofits_by_name, nonprofit_fetch_charity_uk
-  security   (5): security_fetch_package_vulnerabilities, security_fetch_dependency_graph,
-                  security_fetch_cve_detail, security_audit_sbom_vulnerabilities, security_fetch_package_licence
+  security   (7): security_fetch_package_vulnerabilities, security_fetch_dependency_graph,
+                  security_fetch_cve_detail, security_audit_sbom_vulnerabilities, security_fetch_package_licence,
+                  security_fetch_cisa_kev, security_fetch_cve_epss
   compliance (4): compliance_fetch_npi_provider, compliance_search_npi_by_name,
                   compliance_fetch_finra_broker, compliance_check_sam_exclusion
-  domain     (4): domain_fetch_domain_rdap, domain_fetch_ssl_certificate_chain,
-                  domain_fetch_dns_records, domain_fetch_domain_history
+  domain     (7): domain_fetch_domain_rdap, domain_fetch_ssl_certificate_chain,
+                  domain_fetch_dns_records, domain_fetch_domain_history,
+                  domain_fetch_subdomains, domain_check_email_security, domain_fetch_reverse_ip
   legal      (4): legal_fetch_patent_by_number, legal_search_patents_by_keyword,
                   legal_fetch_patent_citations, legal_fetch_inventor_portfolio
   govcon     (3): govcon_search_contract_awards, govcon_fetch_vendor_contract_history,
@@ -20,10 +22,11 @@ Registered tools (29 total):
   regulatory (3): regulatory_search_open_rulemakings, regulatory_fetch_docket_details,
                   regulatory_fetch_federal_register_notices
   Shared     (3): report_feedback, report_mcpize_link, validate_tool_output
+  meta       (1): search_datanexus_tools
 
 Sprint 3 P01: 26 data tools regrouped into 7 FastMCP sub-servers via mount().
-Tool logic unchanged — only mcp-tool registrations moved.
 Sprint 3 P02: search_datanexus_tools meta-tool added (30 total).
+Sprint 4: T10 + T07 Security Pack — 5 new tools, KEV refresh, batch vulns, remediation (35 total).
 """
 
 import asyncio
@@ -33,7 +36,7 @@ import pathlib as _pathlib
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List as _List, Optional as _Optional
+from typing import List as _List, Literal as _Literal, Optional as _Optional
 
 from fastmcp import FastMCP
 from starlette.requests import Request
@@ -42,6 +45,7 @@ from starlette.responses import JSONResponse
 from datanexus.db_init import init_db
 from datanexus.core.prewarm import prewarm_cache
 from datanexus.analytics import track_server_start, shutdown as ph_shutdown
+from datanexus.kev_refresh import kev_initial_load
 
 # ── Sub-server imports (P01) ──────────────────────────────────────────────────
 from datanexus.tools.nonprofit  import nonprofit
@@ -71,13 +75,21 @@ async def report_feedback(
     signal: str,
     comment: str = "",
     missing_fields: _Optional[_List[str]] = None,
+    feedback_type: _Literal["user_feedback", "agent_gap"] = "user_feedback",
+    intended_query: _Optional[str] = None,
+    gap_description: _Optional[str] = None,
 ) -> dict:
-    """Report a data quality issue with a specific DataNexus tool response. Read-only call. Records feedback for human and AI review. tool_id: Tool identifier e.g. T04. Required. query_hash: Hash from the response being reported. Required. Found in the query_hash field of any response. signal: One of incorrect_data, missing_field, stale_data, not_useful, wrong_entity, or data_quality. Required. comment: Description of the issue. Optional. Max 500 characters. missing_fields: List of field names that are absent or wrong. Optional. Call this after receiving a result that appears wrong, outdated, or incomplete. Do not call this to report network errors — those resolve on retry."""
-    return await _real_report_feedback(tool_id, query_hash, signal, comment, missing_fields)
+    """Report a data quality issue or agent intent gap with a DataNexus tool response. Read-only call. Records feedback for human and AI review. tool_id: Tool identifier e.g. T04 or security_fetch_cve_detail. Required. query_hash: Hash from the response being reported. Required. Found in the query_hash field of any response. signal: One of incorrect_data, missing_field, stale_data, not_useful, wrong_entity, or data_quality. Required for user_feedback. feedback_type: user_feedback (default) or agent_gap. Use agent_gap when the tool returned a valid 200 response but the result did not serve the user's actual need. intended_query: What the agent was trying to accomplish — used when feedback_type=agent_gap. Optional. Max 256 chars. gap_description: What was missing or wrong in the result — used when feedback_type=agent_gap. Optional. Max 256 chars. comment: Description of the issue. Optional. Max 500 characters. missing_fields: List of field names that are absent or wrong. Optional. Call this after receiving a result that appears wrong, outdated, or incomplete. Do not call this to report network errors — those resolve on retry. If this tool response did not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="{this_tool_id}", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    return await _real_report_feedback(
+        tool_id, query_hash, signal, comment, missing_fields,
+        feedback_type=feedback_type,
+        intended_query=intended_query,
+        gap_description=gap_description,
+    )
 
 
 async def report_mcpize_link(tool_id: str) -> dict:
-    """Check subscription status and access tier for DataNexus tools. Read-only. No side effects. No parameters required. Returns free or paid status, access tier, and upgrade URL during the free window. Call this when a user asks about pricing, subscription status, or access limits. Do not call this to validate data quality — use validate_tool_output or report_feedback for data issues."""
+    """Check subscription status and access tier for DataNexus tools. Read-only. No side effects. No parameters required. Returns free or paid status, access tier, and upgrade URL during the free window. Call this when a user asks about pricing, subscription status, or access limits. Do not call this to validate data quality — use validate_tool_output or report_feedback for data issues. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="report_mcpize_link", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     return _real_report_mcpize_link(tool_id)
 
 
@@ -97,6 +109,8 @@ async def _lifespan(server):
     # Pre-warm fires in the background — errors are silently swallowed inside
     # prewarm_cache so startup is never blocked by upstream API failures.
     asyncio.ensure_future(prewarm_cache())
+    # KEV catalog initial load — runs in background, swallows all errors
+    asyncio.ensure_future(kev_initial_load())
     tools = await server.list_tools()
     asyncio.create_task(track_server_start(len(tools)))
     yield
@@ -114,22 +128,27 @@ main = FastMCP(
         "nonprofit_fetch_nonprofit_by_ein: look up any US nonprofit by EIN. "
         "nonprofit_search_nonprofits_by_name: search US nonprofits by name and state. "
         "nonprofit_fetch_charity_uk: look up UK registered charities. "
-        "T10: OSS Dependency & Vulnerability Intelligence — OSV.dev + NIST NVD + deps.dev. "
-        "security_fetch_package_vulnerabilities: CVEs for a package version. "
+        "T10: OSS Dependency & Vulnerability Intelligence — OSV.dev + NIST NVD + deps.dev + CISA KEV + FIRST EPSS. "
+        "security_fetch_package_vulnerabilities: CVEs for a package version (or batch up to 50 packages). "
         "security_fetch_dependency_graph: full dep tree (hard 8s timeout). "
-        "security_fetch_cve_detail: full CVE detail by CVE ID. "
+        "security_fetch_cve_detail: full CVE detail by CVE ID including remediation. "
         "security_audit_sbom_vulnerabilities: audit CycloneDX/SPDX SBOM against OSV.dev. "
         "security_fetch_package_licence: SPDX licence for a package version. "
+        "security_fetch_cisa_kev: check if a CVE is in the CISA Known Exploited Vulnerabilities catalog. "
+        "security_fetch_cve_epss: EPSS exploit probability score for a CVE from FIRST.org. "
         "T22: Professional Licence Verification — NPPES NPI Registry + FINRA BrokerCheck + SAM.gov. "
         "compliance_fetch_npi_provider: look up any US healthcare provider by NPI number. "
         "compliance_search_npi_by_name: search NPI registry by provider name with state/speciality filters. "
         "compliance_fetch_finra_broker: look up FINRA BrokerCheck registration by CRD number. "
         "compliance_check_sam_exclusion: check federal exclusions list by name or EIN. "
-        "T07: Domain & DNS Intelligence — IANA RDAP + crt.sh + Cloudflare DoH. "
+        "T07: Domain & DNS Intelligence — IANA RDAP + crt.sh + Cloudflare DoH + SecurityTrails. "
         "domain_fetch_domain_rdap: WHOIS-replacement RDAP lookup for any domain. "
         "domain_fetch_ssl_certificate_chain: CT log certificates for a domain. "
         "domain_fetch_dns_records: A/AAAA/MX/TXT/NS/CNAME records via Cloudflare DoH. "
         "domain_fetch_domain_history: historical certificate issuance from CT logs. "
+        "domain_fetch_subdomains: enumerate known subdomains via crt.sh CT logs (24h cache). "
+        "domain_check_email_security: SPF/DMARC/DKIM scored assessment with A-F grade. "
+        "domain_fetch_reverse_ip: co-hosted domains on the same IPv4 via SecurityTrails. "
         "T11: Global Patent Intelligence — EPO OPS + USPTO PatentsView + WIPO PATENTSCOPE. "
         "legal_fetch_patent_by_number: full bibliographic data for a patent by number and jurisdiction. "
         "legal_search_patents_by_keyword: search EP/US/WO patents by keyword and date. "
@@ -173,7 +192,7 @@ async def health(request: Request) -> JSONResponse:
     return JSONResponse({
         "status": "ok",
         "service": "datanexus-mcp",
-        "tools": 30,
+        "tools": 35,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -193,7 +212,7 @@ async def mcp_manifest(request: Request) -> JSONResponse:
 if __name__ == "__main__":
     logger.info(
         "DataNexus MCP starting — transport=streamable-http — "
-        "30 tools registered (nonprofit×3, security×5, compliance×4, domain×4, "
+        "35 tools registered (nonprofit×3, security×7, compliance×4, domain×7, "
         "legal×4, govcon×3, regulatory×3, Shared×3, meta×1)"
     )
     main.run(transport="streamable-http", host="0.0.0.0", port=8000)  # nosec B104
