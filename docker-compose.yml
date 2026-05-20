@@ -26,6 +26,11 @@ services:
     depends_on:
       - redis
       - postgres
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ---------- Redis ----------------------------------------------------------
   redis:
@@ -34,6 +39,11 @@ services:
     volumes:
       - redis-data:/data
     command: redis-server --appendonly yes
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # ---------- PostgreSQL ----------------------------------------------------
   postgres:
@@ -75,6 +85,11 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy-data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
 volumes:
   redis-data:
