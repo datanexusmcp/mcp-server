@@ -1,6 +1,6 @@
 {
   "name": "DataNexus MCP",
-  "description": "AI-Ready public data intelligence via the Model Context Protocol. 30 tools in 7 focused sub-servers. Start with search_datanexus_tools to find the right tool for your task. Covers nonprofit data (IRS 990), OSS vulnerabilities (CVE/CVSS), professional licences (NPI/FINRA), domain and DNS, patents (EPO/USPTO), government contracts (USASpending/SAM.gov), and regulatory dockets (Regulations.gov). Token-efficient AI-Ready Markdown. Verified sources.",
+  "description": "Security intelligence for AI agents without the setup. CISA KEV, EPSS exploit probability, SBOM audits, subdomain enumeration, patent search, nonprofit data, and government contracting. No API key required for most tools. Zero install — one URL.",
   "url": "https://datanexusmcp.com/mcp",
   "transport": "streamable-http",
   "remote": true,
@@ -32,11 +32,11 @@
     },
     {
       "name": "security_fetch_package_vulnerabilities",
-      "description": "Use this to find CVEs for any open source package. Provide package name, version and ecosystem (PyPI, npm, Maven, Go, Cargo). Returns severity, CVSS score and fixed versions. Verified source: Google OSV.dev + NIST NVD. Token-efficient. AI-Ready Markdown."
+      "description": "Use this to find CVEs for any open source package. Single mode: package name, version, ecosystem (PyPI, npm, Maven, Go, Cargo). Batch mode: pass packages array of up to 50 {name, version, ecosystem} objects. Returns severity, CVSS score and fixed versions. Verified source: Google OSV.dev + NIST NVD. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_fetch_cve_detail",
-      "description": "Use this to get full detail on a CVE by ID. Returns description, CVSS score, affected products and patch references. Verified source: NIST NVD. Token-efficient. AI-Ready Markdown."
+      "description": "Use this to get full detail on a CVE by ID. Returns description, CVSS score, affected products, patch references, and remediation with fixed versions from OSV. Verified source: NIST NVD + OSV.dev. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_fetch_dependency_graph",
@@ -49,6 +49,14 @@
     {
       "name": "security_fetch_package_licence",
       "description": "Use this to check the licence for an open source package version. Returns SPDX licence identifier. Verified source: deps.dev. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "security_fetch_cisa_kev",
+      "description": "Use this to check if a CVE is in the CISA Known Exploited Vulnerabilities catalog. Returns date added, remediation due date, ransomware use flag, and vendor/product. Catalog cached 25h with daily refresh. Verified source: CISA KEV. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "security_fetch_cve_epss",
+      "description": "Use this to get the EPSS exploit probability score for a CVE. Returns score (0-1), percentile, and model version from FIRST.org. Higher score = more likely to be exploited in the wild. 6-hour cache. Verified source: FIRST.org EPSS API. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "compliance_fetch_npi_provider",
@@ -81,6 +89,18 @@
     {
       "name": "domain_fetch_domain_history",
       "description": "Use this to see historical SSL certificate issuance for a domain. Useful for detecting unexpected certificate issuance. Verified source: crt.sh Certificate Transparency. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "domain_fetch_subdomains",
+      "description": "Use this to enumerate known subdomains for a domain via Certificate Transparency logs. Returns deduplicated sorted list. Free alternative to paid subdomain tools. Verified source: crt.sh. 24-hour cache. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "domain_check_email_security",
+      "description": "Use this to assess email security posture for a domain. Scores SPF, DMARC, and DKIM 0-10 each and returns an A-F overall grade. SPF -all=10, DMARC p=reject=10, DKIM any selector found=10. Verified source: Cloudflare DoH (live DNS, no cache). Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "domain_fetch_reverse_ip",
+      "description": "Use this to find all domains co-hosted on the same IP address. Accepts domain name or IPv4 address. Resolves domain to IP first if needed. IPv6-only domains not supported. Verified source: HackerTarget. 24-hour cache. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "legal_fetch_patent_by_number",
