@@ -476,7 +476,7 @@ The Builder agent reads this section first. These are hard stops:
 
 ### 11.2 Haiku trigger guard
 
-Haiku is called ONLY on the 4 triggers in Section 13.2 of DataNexus_MCP_Spec_v7_4.docx.
+Haiku is called ONLY on the 4 triggers in Section 13.2 of DataNexus_MCP_Spec_v7_6.docx.
 Human PR required for any new trigger.
 
 ---
@@ -516,7 +516,7 @@ Claude Code enforces this file on every build.*
 ---
 
 ## Section 13 — Haiku Validation Rules
-## (DataNexus_MCP_Spec_v7_4.docx Section 13)
+## (DataNexus_MCP_Spec_v7_6.docx Section 13)
 
 Rule S13-1: Haiku called ONLY on 4 triggers:
   T1 anomaly_reviewer.review_anomaly()

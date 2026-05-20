@@ -2,13 +2,14 @@
 feedback/collector.py — report_feedback() FastMCP tool.
 
 Spec: DataNexus_MCP_Spec_v7_3.docx  Section 8.4 / Section 11.6 Step 6
+Sprint 5 Layer 0.5: agent_gap feedback_type path added.
 
 Contract (non-negotiable):
   ALWAYS returns {'status': 'recorded'}.
   Never raises. Never returns an error dict.
   Silent failure on every layer — validation, Redis, routing all degrade gracefully.
 
-Four defense layers (inline, in order):
+Four defense layers (inline, in order — for user_feedback path):
   1. Pydantic FeedbackInput validation — rejects malformed input silently.
   2. tool_id in FEEDBACK_ENABLED_TOOLS — explicit guard (belt-and-suspenders).
   3. Dedup: identical tool_id+query_hash+signal within DEDUP_WINDOW_SECS
@@ -16,6 +17,11 @@ Four defense layers (inline, in order):
   4. Route:
        BUG_SIGNAL       → LPUSH fb:alerts:immediate   (consumed by bug_listener)
        IMPROVEMENT_SIGNAL → LPUSH fb:queue             (consumed by digest worker)
+
+agent_gap path (Sprint 5 Layer 0.5):
+  feedback_type="agent_gap" → writes to datanexus:agent_gaps:{YYYY-MM-DD}, 72h TTL.
+  Bypasses FEEDBACK_ENABLED_TOOLS guard — agents can report gaps for any tool.
+  intended_query and gap_description truncated to 256 chars server-side.
 """
 
 from __future__ import annotations
@@ -24,7 +30,8 @@ import json
 import logging
 import os
 import time
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import List, Literal, Optional
 
 import redis as redis_lib
 from pydantic import ValidationError
@@ -96,22 +103,67 @@ def _set_redis_client(client: Optional[redis_lib.Redis]) -> None:
 
 # ── Core tool function ────────────────────────────────────────────────────────
 
+_AGENT_GAPS_TTL = 72 * 3600  # 72h — 48h margin vs 24h digest cycle
+_GAP_FIELD_MAX  = 256         # max chars for intended_query and gap_description
+
+
 async def report_feedback(
     tool_id: str,
     query_hash: str,
     signal: str,
     comment: str = "",
     missing_fields: Optional[List[str]] = None,
+    feedback_type: Literal["user_feedback", "agent_gap"] = "user_feedback",
+    intended_query: Optional[str] = None,
+    gap_description: Optional[str] = None,
 ) -> dict:
-    """Report a data quality issue with a specific DataNexus tool response. Read-only call. Records feedback for human and AI review. tool_id: Tool identifier e.g. T04. Required. query_hash: Hash from the response being reported. Required. Found in the query_hash field of any response. signal: One of incorrect_data, missing_field, stale_data, not_useful, wrong_entity, or data_quality. Required. comment: Description of the issue. Optional. Max 500 characters. missing_fields: List of field names that are absent or wrong. Optional. Call this after receiving a result that appears wrong, outdated, or incomplete. Do not call this to report network errors — those resolve on retry."""
+    """Report a data quality issue or agent intent gap with a DataNexus tool response. Read-only call. Records feedback for human and AI review. tool_id: Tool identifier e.g. T04 or security_fetch_cve_detail. Required. query_hash: Hash from the response being reported. Required. Found in the query_hash field of any response. signal: One of incorrect_data, missing_field, stale_data, not_useful, wrong_entity, or data_quality. Required for user_feedback. feedback_type: user_feedback (default) or agent_gap. Use agent_gap when the tool returned a valid 200 response but the result did not serve the user's actual need. intended_query: What the agent was trying to accomplish — used when feedback_type=agent_gap. Optional. Max 256 chars. gap_description: What was missing or wrong in the result — used when feedback_type=agent_gap. Optional. Max 256 chars. comment: Description of the issue. Optional. Max 500 characters. missing_fields: List of field names that are absent or wrong. Optional. Call this after receiving a result that appears wrong, outdated, or incomplete. Do not call this to report network errors — those resolve on retry. If this tool response did not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="{this_tool_id}", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     try:
-        _handle_feedback(tool_id, query_hash, signal, comment, missing_fields)
+        if feedback_type == "agent_gap":
+            _handle_agent_gap(tool_id, intended_query, gap_description)
+        else:
+            _handle_feedback(tool_id, query_hash, signal, comment, missing_fields)
     except Exception:
         log.exception(
-            "feedback.collector: unexpected error tool=%s signal=%s — swallowing",
-            tool_id, signal,
+            "feedback.collector: unexpected error tool=%s signal=%s feedback_type=%s — swallowing",
+            tool_id, signal, feedback_type,
         )
     return {"status": "recorded"}
+
+
+def _handle_agent_gap(
+    tool_id: str,
+    intended_query: Optional[str],
+    gap_description: Optional[str],
+) -> None:
+    """Write an agent_gap entry to datanexus:agent_gaps:{YYYY-MM-DD}. Never raises."""
+    r = _get_redis()
+    if r is None:
+        log.info("feedback.collector: Redis unavailable — skipping agent_gap persistence")
+        return
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    key   = f"datanexus:agent_gaps:{today}"
+
+    # Truncate to 256 chars — these fields may contain context derived from user messages
+    entry = {
+        "tool_id":         (tool_id or "")[:50],
+        "intended_query":  (intended_query or "")[:_GAP_FIELD_MAX],
+        "gap_description": (gap_description or "")[:_GAP_FIELD_MAX],
+        "timestamp":       datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        pipe = r.pipeline()
+        pipe.lpush(key, json.dumps(entry))
+        pipe.expire(key, _AGENT_GAPS_TTL)
+        pipe.execute()
+        log.info(
+            "feedback.collector: agent_gap recorded tool=%s",
+            tool_id,
+        )
+    except Exception as exc:
+        log.error("feedback.collector: agent_gap pipeline failed — %s", exc)
 
 
 def _handle_feedback(

@@ -1,0 +1,95 @@
+{
+  "name": "DataNexus MCP",
+  "version": "2.0.2",
+  "transport": "streamable-http",
+  "endpoint": "https://datanexusmcp.com/mcp",
+  "discovery_tool": "search_datanexus_tools",
+  "tool_groups": [
+    {
+      "namespace": "nonprofit",
+      "tool_count": 3,
+      "description": "US and UK nonprofit registry lookups — IRS EO BMF, IRS TEOS, and UK Charity Commission",
+      "tools": [
+        "fetch_nonprofit_by_ein",
+        "search_nonprofits_by_name",
+        "fetch_charity_uk"
+      ]
+    },
+    {
+      "namespace": "security",
+      "tool_count": 5,
+      "description": "OSS dependency and vulnerability intelligence — OSV.dev, NIST NVD, deps.dev, SBOM auditing",
+      "tools": [
+        "fetch_package_vulnerabilities",
+        "fetch_dependency_graph",
+        "fetch_cve_detail",
+        "audit_sbom_vulnerabilities",
+        "fetch_package_licence"
+      ]
+    },
+    {
+      "namespace": "compliance",
+      "tool_count": 4,
+      "description": "Professional licence verification — NPPES NPI Registry, FINRA BrokerCheck, SAM.gov exclusions",
+      "tools": [
+        "fetch_npi_provider",
+        "search_npi_by_name",
+        "fetch_finra_broker",
+        "check_sam_exclusion"
+      ]
+    },
+    {
+      "namespace": "domain",
+      "tool_count": 4,
+      "description": "Domain and DNS intelligence — IANA RDAP, CT logs (crt.sh), Cloudflare DoH",
+      "tools": [
+        "fetch_domain_rdap",
+        "fetch_ssl_certificate_chain",
+        "fetch_dns_records",
+        "fetch_domain_history"
+      ]
+    },
+    {
+      "namespace": "legal",
+      "tool_count": 4,
+      "description": "Global patent intelligence — EPO OPS, USPTO PatentsView, WIPO PATENTSCOPE",
+      "tools": [
+        "fetch_patent_by_number",
+        "search_patents_by_keyword",
+        "fetch_patent_citations",
+        "fetch_inventor_portfolio"
+      ]
+    },
+    {
+      "namespace": "govcon",
+      "tool_count": 3,
+      "description": "Government contracting and procurement — USASpending.gov, SAM.gov, EU TED, UK Find-a-Tender",
+      "tools": [
+        "search_contract_awards",
+        "fetch_vendor_contract_history",
+        "fetch_open_solicitations"
+      ]
+    },
+    {
+      "namespace": "regulatory",
+      "tool_count": 3,
+      "description": "Regulatory docket and comment tracking — Regulations.gov, Federal Register, EU Have Your Say",
+      "tools": [
+        "search_open_rulemakings",
+        "fetch_docket_details",
+        "fetch_federal_register_notices"
+      ]
+    }
+  ],
+  "shared_tools": [
+    "report_feedback",
+    "report_mcpize_link",
+    "validate_tool_output",
+    "search_datanexus_tools"
+  ],
+  "links": {
+    "homepage": "https://datanexusmcp.com",
+    "npm": "https://www.npmjs.com/package/@datanexusmcp/mcp-server",
+    "github": "https://github.com/datanexusmcp/mcp-server"
+  }
+}
