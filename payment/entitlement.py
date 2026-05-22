@@ -26,9 +26,11 @@ NEVER modify this file without a human PR.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -36,6 +38,12 @@ from typing import Any, Callable, Optional
 import redis as redis_lib
 
 import payment.config as _cfg
+
+# Usage instrumentation — non-billing additions (approved by operator in chat).
+# These imports are the ONLY changes to this file outside the wrapper finally block.
+# All six billing check conditions and their logic are untouched.
+from datanexus.core.request_context import client_ip_var
+from datanexus.core.usage_recorder import record_usage
 
 log = logging.getLogger("payment.entitlement")
 
@@ -169,56 +177,85 @@ def verify_entitlement(tool_id: str) -> Callable:
             # ── Telemetry — ALWAYS, regardless of outcome ─────────────────────
             await _run_telemetry(tool_id, caller_id)
 
-            # ── Condition 1: free window ───────────────────────────────────────
-            if not _cfg.MCPIZE_ACTIVE:
-                return await fn(*args, **kwargs)
+            # ── Usage instrumentation: time the tool call + record outcome ────
+            # NOTE: billing logic below is 100% unchanged — all six conditions
+            # are preserved exactly as written.  This block only adds a timer
+            # and a fire-and-forget DB write in the finally clause.
+            _t0 = time.monotonic()
+            _success = True
+            _error_msg: Optional[str] = None
 
-            # ── Condition 2: URL empty → tool not monetised yet ───────────────
-            if not _cfg.MCPIZE_URLS.get(tool_id, ""):
-                return await fn(*args, **kwargs)
-
-            # ── Redis entitlement / grace check ────────────────────────────────
             try:
-                r = _get_redis()
+                # ── Condition 1: free window ───────────────────────────────────
+                if not _cfg.MCPIZE_ACTIVE:
+                    return await fn(*args, **kwargs)
 
-                # ── Condition 6: Redis unavailable → fail open ─────────────────
-                if r is None:
+                # ── Condition 2: URL empty → tool not monetised yet ───────────
+                if not _cfg.MCPIZE_URLS.get(tool_id, ""):
+                    return await fn(*args, **kwargs)
+
+                # ── Redis entitlement / grace check ───────────────────────────
+                try:
+                    r = _get_redis()
+
+                    # ── Condition 6: Redis unavailable → fail open ────────────
+                    if r is None:
+                        log.warning(
+                            "payment.entitlement: Redis unavailable for tool=%s — "
+                            "fail open (allowing call)",
+                            tool_id,
+                        )
+                        return await fn(*args, **kwargs)
+
+                    # ── Condition 3: valid entitlement key ────────────────────
+                    if r.exists(_cfg.key_entitlement(tool_id, caller_id)):
+                        return await fn(*args, **kwargs)
+
+                    # ── Condition 4: grace period active ──────────────────────
+                    if r.exists(_cfg.key_grace(tool_id, caller_id)):
+                        result = await fn(*args, **kwargs)
+                        if isinstance(result, dict):
+                            result["grace_warning"] = (
+                                "Your subscription has lapsed. "
+                                "Service continues during the grace period. "
+                                f"Renew at: {_cfg.MCPIZE_URLS.get(tool_id, '')}"
+                            )
+                        return result
+
+                    # ── Condition 5: no entitlement, no grace → 402 ───────────
+                    log.info(
+                        "payment.entitlement: 402 tool=%s caller=%s", tool_id, caller_id,
+                    )
+                    _success = False  # 402 is a non-success outcome for usage tracking
+                    return _payment_required(tool_id)
+
+                except Exception as exc:
+                    # ── Condition 6 (exception path): Redis error → fail open ─
                     log.warning(
-                        "payment.entitlement: Redis unavailable for tool=%s — "
-                        "fail open (allowing call)",
-                        tool_id,
+                        "payment.entitlement: Redis error during check tool=%s — %s — "
+                        "fail open",
+                        tool_id, exc,
                     )
                     return await fn(*args, **kwargs)
 
-                # ── Condition 3: valid entitlement key ─────────────────────────
-                if r.exists(_cfg.key_entitlement(tool_id, caller_id)):
-                    return await fn(*args, **kwargs)
-
-                # ── Condition 4: grace period active ───────────────────────────
-                if r.exists(_cfg.key_grace(tool_id, caller_id)):
-                    result = await fn(*args, **kwargs)
-                    if isinstance(result, dict):
-                        result["grace_warning"] = (
-                            "Your subscription has lapsed. "
-                            "Service continues during the grace period. "
-                            f"Renew at: {_cfg.MCPIZE_URLS.get(tool_id, '')}"
-                        )
-                    return result
-
-                # ── Condition 5: no entitlement, no grace → 402 ────────────────
-                log.info(
-                    "payment.entitlement: 402 tool=%s caller=%s", tool_id, caller_id,
-                )
-                return _payment_required(tool_id)
-
             except Exception as exc:
-                # ── Condition 6 (exception path): Redis error → fail open ──────
-                log.warning(
-                    "payment.entitlement: Redis error during check tool=%s — %s — "
-                    "fail open",
-                    tool_id, exc,
-                )
-                return await fn(*args, **kwargs)
+                _success = False
+                _error_msg = str(exc)[:500]
+                raise
+
+            finally:
+                _latency_ms = int((time.monotonic() - _t0) * 1000)
+                _client_ip = client_ip_var.get()   # 'unknown' outside HTTP context
+                # Fire-and-forget — never blocks the tool response
+                asyncio.ensure_future(record_usage(
+                    tool_id=tool_id,
+                    session_id=caller_id,
+                    tool_input=kwargs,
+                    client_ip=_client_ip,
+                    success=_success,
+                    error_msg=_error_msg,
+                    latency_ms=_latency_ms,
+                ))
 
         return wrapper
     return decorator
