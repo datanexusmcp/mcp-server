@@ -1,6 +1,6 @@
 {
   "name": "DataNexus MCP",
-  "description": "Security intelligence for AI agents without the setup. CISA KEV, EPSS exploit probability, SBOM audits, subdomain enumeration, patent search, nonprofit data, and government contracting. No API key required for most tools. Zero install — one URL.",
+  "description": "CISA KEV · CVE EPSS · SBOM audit · patent search · nonprofit 990 data · government contracts · subdomain enumeration · domain RDAP · email security scoring. Public data intelligence for AI agents. Zero install, one URL: https://datanexusmcp.com/mcp",
   "url": "https://datanexusmcp.com/mcp",
   "transport": "streamable-http",
   "remote": true,

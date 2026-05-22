@@ -1,6 +1,6 @@
 # DataNexus MCP
 
-**Public data intelligence for AI agents. Zero install. One URL.**
+**CISA KEV, CVE EPSS, SBOM audits, patent search, nonprofit 990 data, government contracts, and domain intelligence for AI agents. Zero install. One URL.**
 
 ```
 https://datanexusmcp.com/mcp
