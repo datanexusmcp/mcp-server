@@ -23,6 +23,12 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+# Mark this process as a smoke test run so that:
+#  1. UsageRecorder writes rows with is_smoke=True (visible in pass-rate stats)
+#  2. PostHog events are suppressed (keeps organic analytics clean)
+# Must be set before any tool import so the flag is visible at module load time.
+os.environ["DATANEXUS_SMOKE_RUN"] = "1"
+
 log = logging.getLogger("datanexus.smoke")
 
 # ── Constants ──────────────────────────────────────────────────────────────────

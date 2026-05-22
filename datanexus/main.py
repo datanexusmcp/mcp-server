@@ -39,8 +39,42 @@ from datetime import datetime, timezone
 from typing import List as _List, Literal as _Literal, Optional as _Optional
 
 from fastmcp import FastMCP
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+from datanexus.core.request_context import client_ip_var
+
+
+class _ClientIPMiddleware:
+    """
+    Pure-ASGI middleware — extracts the real client IP from the X-Real-IP
+    header (set by Caddy) and stores it in client_ip_var for the duration
+    of the request.
+
+    Falls back through X-Forwarded-For → ASGI client host → 'unknown'.
+    Pure-ASGI (not BaseHTTPMiddleware) so contextvars are correctly
+    propagated into all coroutines within the same task chain.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            headers = {k.lower(): v for k, v in scope.get("headers", [])}
+            ip = (
+                headers.get(b"x-real-ip", b"").decode().strip()
+                or headers.get(b"x-forwarded-for", b"").decode().split(",")[0].strip()
+                or (scope.get("client") or ("unknown", 0))[0]
+            )
+            token = client_ip_var.set(ip or "unknown")
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                client_ip_var.reset(token)
+        else:
+            await self.app(scope, receive, send)
 
 from datanexus.db_init import init_db
 from datanexus.core.prewarm import prewarm_cache
@@ -215,4 +249,9 @@ if __name__ == "__main__":
         "35 tools registered (nonprofit×3, security×7, compliance×4, domain×7, "
         "legal×4, govcon×3, regulatory×3, Shared×3, meta×1)"
     )
-    main.run(transport="streamable-http", host="0.0.0.0", port=8000)  # nosec B104
+    main.run(
+        transport="streamable-http",
+        host="0.0.0.0",   # nosec B104
+        port=8000,
+        middleware=[Middleware(_ClientIPMiddleware)],
+    )

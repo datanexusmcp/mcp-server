@@ -58,7 +58,13 @@ def _fire(event: str, properties: dict) -> None:
     """
     Fire PostHog event in background thread.
     Never blocks. Never raises.
+    Skipped entirely when DATANEXUS_SMOKE_RUN=1 (smoke/canary test traffic).
     """
+    # Exclude smoke test calls from PostHog so organic metrics stay clean.
+    # UsageRecorder still writes to PostgreSQL with is_smoke=True.
+    if os.environ.get("DATANEXUS_SMOKE_RUN") == "1":
+        return
+
     ph = _get_client()
     if not ph:
         return

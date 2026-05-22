@@ -1041,6 +1041,129 @@ async def api_feedback() -> JSONResponse:
     return JSONResponse({"feedback": results})
 
 
+@app.get("/ops/daily")
+async def ops_daily() -> JSONResponse:
+    """
+    Daily ops dashboard — organic tool activity for the last 24 hours.
+
+    Returns two sections:
+      tool_summary  — per-tool call counts, pass rates, avg latency, unique IPs
+      recent_calls  — last 200 individual calls with input, outcome, latency
+
+    Filters:
+      - is_smoke = false  (smoke/canary excluded — organic traffic only)
+      - created_at > NOW() - INTERVAL '24 hours'
+
+    Access is not IP-restricted here because the endpoint is only reachable
+    via SSH tunnel (localhost:8101) — Caddy blocks external /ops/* traffic.
+    """
+    db_url = os.environ.get("DATANEXUS_DB_URL", "").strip()
+    if not db_url or not db_url.startswith(("postgresql://", "postgres://")):
+        return JSONResponse(
+            {"error": "DATANEXUS_DB_URL not configured"},
+            status_code=503,
+        )
+
+    try:
+        import asyncpg
+    except ImportError:
+        return JSONResponse(
+            {"error": "asyncpg not installed"},
+            status_code=503,
+        )
+
+    try:
+        conn = await asyncpg.connect(db_url, command_timeout=10)
+    except Exception as exc:
+        log.warning("ops_daily: DB connect failed — %s", exc)
+        return JSONResponse(
+            {"error": f"DB unavailable: {exc}"},
+            status_code=503,
+        )
+
+    try:
+        # ── Section A: per-tool pass rates (organic, last 24 h) ───────────────
+        summary_rows = await conn.fetch("""
+            SELECT
+                tool_id,
+                COUNT(*)                                             AS total_calls,
+                COUNT(*) FILTER (WHERE success = true)              AS passed,
+                COUNT(*) FILTER (WHERE success = false)             AS failed,
+                ROUND(
+                    100.0 * COUNT(*) FILTER (WHERE success = true)
+                    / NULLIF(COUNT(*), 0),
+                    1
+                )                                                    AS pass_rate_pct,
+                AVG(latency_ms)::int                                 AS avg_latency_ms,
+                COUNT(DISTINCT client_ip)                            AS unique_ips
+            FROM usage
+            WHERE created_at > NOW() - INTERVAL '24 hours'
+              AND (is_smoke = false OR is_smoke IS NULL)
+            GROUP BY tool_id
+            ORDER BY total_calls DESC
+        """)
+
+        # ── Section B: individual calls (organic, last 24 h, newest first) ────
+        call_rows = await conn.fetch("""
+            SELECT
+                created_at,
+                tool_id,
+                client_ip,
+                tool_input,
+                success,
+                error_msg,
+                latency_ms
+            FROM usage
+            WHERE created_at > NOW() - INTERVAL '24 hours'
+              AND (is_smoke = false OR is_smoke IS NULL)
+            ORDER BY created_at DESC
+            LIMIT 200
+        """)
+
+    except Exception as exc:
+        log.warning("ops_daily: query failed — %s", exc)
+        return JSONResponse(
+            {"error": f"Query failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        await conn.close()
+
+    tool_summary = [
+        {
+            "tool_id":       r["tool_id"],
+            "total_calls":   r["total_calls"],
+            "passed":        r["passed"],
+            "failed":        r["failed"],
+            "pass_rate_pct": float(r["pass_rate_pct"]) if r["pass_rate_pct"] is not None else None,
+            "avg_latency_ms": r["avg_latency_ms"],
+            "unique_ips":    r["unique_ips"],
+        }
+        for r in summary_rows
+    ]
+
+    recent_calls = [
+        {
+            "created_at": r["created_at"].isoformat(),
+            "tool_id":    r["tool_id"],
+            "client_ip":  r["client_ip"],
+            "tool_input": json.loads(r["tool_input"]) if r["tool_input"] else None,
+            "success":    r["success"],
+            "error_msg":  r["error_msg"],
+            "latency_ms": r["latency_ms"],
+        }
+        for r in call_rows
+    ]
+
+    return JSONResponse({
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "window":       "last_24h",
+        "organic_only": True,
+        "tool_summary": tool_summary,
+        "recent_calls": recent_calls,
+    })
+
+
 @app.get("/api/health")
 async def api_health() -> JSONResponse:
     """Service health check."""

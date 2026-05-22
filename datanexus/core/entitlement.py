@@ -21,14 +21,19 @@ Telemetry written on EVERY call (free or paid):
               ON CONFLICT DO NOTHING
 """
 
+import asyncio
 import functools
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 import redis as redis_lib
+
+from datanexus.core.request_context import client_ip_var
+from datanexus.core.usage_recorder import record_usage
 
 log = logging.getLogger("datanexus.core.entitlement")
 
@@ -158,14 +163,39 @@ def verify_entitlement(tool_id: str) -> Callable:
             session_id = _get_or_create_session(kwargs)
             await _run_telemetry(tool_id, session_id)
 
-            if not MCPIZE_ACTIVE:
-                # Free window — passthrough, telemetry already written above
+            # ── Usage instrumentation ─────────────────────────────────────────
+            _t0 = time.monotonic()
+            _success = True
+            _error_msg: Optional[str] = None
+
+            try:
+                if not MCPIZE_ACTIVE:
+                    # Free window — passthrough, telemetry already written above
+                    return await fn(*args, **kwargs)
+
+                # MCPIZE_ACTIVE=true — full enforcement delegated to
+                # payment/entitlement.py once Phase 5 is built.
+                # Stub: passthrough until payment module is wired.
                 return await fn(*args, **kwargs)
 
-            # MCPIZE_ACTIVE=true — full enforcement delegated to
-            # payment/entitlement.py once Phase 5 is built.
-            # Stub: passthrough until payment module is wired.
-            return await fn(*args, **kwargs)
+            except Exception as exc:
+                _success = False
+                _error_msg = str(exc)[:500]
+                raise
+
+            finally:
+                _latency_ms = int((time.monotonic() - _t0) * 1000)
+                _client_ip = client_ip_var.get()   # 'unknown' outside HTTP context
+                # Fire-and-forget — never blocks the tool response
+                asyncio.ensure_future(record_usage(
+                    tool_id=tool_id,
+                    session_id=session_id,
+                    tool_input=kwargs,
+                    client_ip=_client_ip,
+                    success=_success,
+                    error_msg=_error_msg,
+                    latency_ms=_latency_ms,
+                ))
 
         return wrapper
     return decorator
