@@ -114,9 +114,17 @@ def _write_redis_classification(
     record_id: str,
     classification: str,
     score: float,
+    record: "FeedbackRecord | None" = None,
+    suggested_fix: str = "",
 ) -> None:
     """
-    Write classification, score, agent_version to Redis.
+    Write classification + full context to Redis so reviewers have everything
+    in one place without needing to cross-reference feedback:{tool_id}:{id}.
+
+    Fields always written: classification, score, agent_version.
+    Fields written when record is provided: tool_id, signal, comment,
+      query_hash, received_at, missing_fields (JSON), suggested_fix.
+
     Called on EVERY classify_feedback invocation — even on Haiku failure.
     Never raises.
     """
@@ -129,13 +137,24 @@ def _write_redis_classification(
         }))
         return
     try:
+        mapping: dict = {
+            "classification": classification,
+            "score":          str(score),
+            "agent_version":  HAIKU_MODEL,
+        }
+        if record is not None:
+            mapping.update({
+                "tool_id":        record.tool_id,
+                "signal":         record.signal,
+                "comment":        record.comment or "",
+                "query_hash":     record.query_hash,
+                "received_at":    record.received_at,
+                "missing_fields": json.dumps(record.missing_fields or []),
+                "suggested_fix":  suggested_fix,
+            })
         r.hset(
             _redis_key(record_id),
-            mapping={
-                "classification": classification,
-                "score":          str(score),
-                "agent_version":  HAIKU_MODEL,
-            },
+            mapping=mapping,
         )
         log.info(json.dumps({
             "event":          "feedback_classifier_redis_written",
@@ -262,7 +281,10 @@ async def classify_feedback(
         haiku_available = False
 
         # Always write to Redis — even on failure
-        _write_redis_classification(record.record_id, classification, score)
+        _write_redis_classification(
+            record.record_id, classification, score,
+            record=record, suggested_fix="",
+        )
 
         log.info(json.dumps({
             "event":          "feedback_classified",
@@ -298,7 +320,10 @@ async def classify_feedback(
     suggested_fix = str(raw.get("suggested_fix", "") or "")
 
     # ── Always write classification to Redis ──────────────────────────────────
-    _write_redis_classification(record.record_id, classification, score)
+    _write_redis_classification(
+        record.record_id, classification, score,
+        record=record, suggested_fix=suggested_fix,
+    )
 
     # ── GitHub pending: confirmed + score >= 0.8 ──────────────────────────────
     open_github = classification == "confirmed" and score >= _GITHUB_THRESHOLD

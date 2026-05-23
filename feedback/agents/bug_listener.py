@@ -71,6 +71,7 @@ def _fire_ntfy(payload: dict) -> None:
         ts     = payload.get("received_at", "")[:10]
 
         title   = f"[DataNexus] {signal} on {tool} — {ts}"[:_MAX_TITLE_LEN]
+        title   = title.encode('ascii', errors='replace').decode('ascii')
         message = payload.get("comment", "") or f"Signal: {signal} | Tool: {tool}"
 
         headers = {
