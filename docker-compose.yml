@@ -75,6 +75,23 @@ services:
     depends_on:
       - redis
 
+  # ---------- Bug listener — Section 13 Trigger 2 (feedback classification) ---
+  bug-listener:
+    build: .
+    restart: always
+    command: python -m feedback.agents.bug_listener
+    env_file: /app/.env
+    environment:
+      DATANEXUS_REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+      - postgres
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
   # ---------- Caddy (TLS termination) ---------------------------------------
   caddy:
     image: caddy:2-alpine
