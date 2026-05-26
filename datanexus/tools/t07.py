@@ -317,6 +317,31 @@ async def fetch_ssl_certificate_chain(domain: str) -> dict:
                     "crt.sh timed out. Try again shortly.",
                     ctx.query_hash, 30, False,
                 )
+            except httpx.HTTPStatusError as exc:
+                record_failure_sync("crt_sh")
+                if exc.response.status_code in (502, 503):
+                    # crt.sh upstream degraded — serve archive cache if available
+                    archive = get_cached("T07", phash + "_archive")
+                    if archive:
+                        log.warning("t07.fetch_ssl_certificate_chain: crt.sh %d — serving cached data for domain=%s",
+                                    exc.response.status_code, domain_clean)
+                        _success = True
+                        _cache_hit = True
+                        return {
+                            **archive,
+                            **standard_response_fields(ctx.query_hash, archive.get("data_as_of", ""), False),
+                            "source_note":      "crt.sh upstream degraded (502). Serving cached data.",
+                            "cache_served":     True,
+                            "upstream_healthy": False,
+                            "cache_hit":        True,
+                        }
+                log.error("t07.fetch_ssl_certificate_chain HTTP %d domain=%s",
+                          exc.response.status_code, domain_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    f"crt.sh returned HTTP {exc.response.status_code}. Try again later.",
+                    ctx.query_hash, 60, False,
+                )
             except Exception:
                 record_failure_sync("crt_sh")
                 log.exception("t07.fetch_ssl_certificate_chain error domain=%s", domain_clean)
@@ -347,6 +372,7 @@ async def fetch_ssl_certificate_chain(domain: str) -> dict:
             }
 
             set_cached("T07", phash, payload, T07_TTL)
+            set_cached("T07", phash + "_archive", payload, T07_TTL * 6)
             ctx.set_cache_hit(False)
             record_success_sync("crt_sh")
 
@@ -544,6 +570,31 @@ async def fetch_domain_history(domain: str) -> dict:
                     "crt.sh timed out. Try again shortly.",
                     ctx.query_hash, 30, False,
                 )
+            except httpx.HTTPStatusError as exc:
+                record_failure_sync("crt_sh")
+                if exc.response.status_code in (502, 503):
+                    # crt.sh upstream degraded — serve archive cache if available
+                    archive = get_cached("T07", phash + "_archive")
+                    if archive:
+                        log.warning("t07.fetch_domain_history: crt.sh %d — serving cached data for domain=%s",
+                                    exc.response.status_code, domain_clean)
+                        _success = True
+                        _cache_hit = True
+                        return {
+                            **archive,
+                            **standard_response_fields(ctx.query_hash, archive.get("data_as_of", ""), False),
+                            "source_note":      "crt.sh upstream degraded (502). Serving cached data.",
+                            "cache_served":     True,
+                            "upstream_healthy": False,
+                            "cache_hit":        True,
+                        }
+                log.error("t07.fetch_domain_history HTTP %d domain=%s",
+                          exc.response.status_code, domain_clean)
+                return error_response(
+                    ErrorCode.INTERNAL_ERROR,
+                    f"crt.sh returned HTTP {exc.response.status_code}. Try again later.",
+                    ctx.query_hash, 60, False,
+                )
             except Exception:
                 record_failure_sync("crt_sh")
                 log.exception("t07.fetch_domain_history error domain=%s", domain_clean)
@@ -574,6 +625,7 @@ async def fetch_domain_history(domain: str) -> dict:
             }
 
             set_cached("T07", phash, payload, T07_TTL)
+            set_cached("T07", phash + "_archive", payload, T07_TTL * 6)
             ctx.set_cache_hit(False)
             record_success_sync("crt_sh")
 
@@ -662,6 +714,22 @@ async def fetch_subdomains(domain: str) -> dict:
                     )
                     if resp.status_code in (429, 500, 502, 503, 504):
                         record_failure_sync("crt_sh")
+                        if resp.status_code in (502, 503):
+                            # crt.sh upstream degraded — serve archive cache if available
+                            archive = get_cached("subdomains", domain_clean + ":archive")
+                            if archive:
+                                log.warning("t07.fetch_subdomains: crt.sh %d — serving cached data for domain=%s",
+                                            resp.status_code, domain_clean)
+                                _success = True
+                                _cache_hit = True
+                                return {
+                                    **archive,
+                                    **standard_response_fields(ctx.query_hash, archive.get("data_as_of", ""), False),
+                                    "source_note":      "crt.sh upstream degraded (502). Serving cached data.",
+                                    "cache_served":     True,
+                                    "upstream_healthy": False,
+                                    "cache_hit":        True,
+                                }
                         return error_response(
                             error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
                             message=f"crt.sh returned HTTP {resp.status_code}. Try again later.",
@@ -746,6 +814,7 @@ async def fetch_subdomains(domain: str) -> dict:
 
             # Store in datanexus:subdomains:{domain} (TTL 24h)
             set_cached("subdomains", domain_clean, payload, _SUBDOMAINS_TTL)
+            set_cached("subdomains", domain_clean + ":archive", payload, _SUBDOMAINS_TTL * 6)
             ctx.set_cache_hit(False)
 
             log.info("t07.fetch_subdomains ok domain=%s count=%d latency_ms=%d",
@@ -1243,7 +1312,8 @@ def _normalise_rdap(raw: dict, domain: str) -> dict:
 
 async def _fetch_crt_sh(query: str, limit: int = 10) -> list:
     async with httpx.AsyncClient(
-        timeout=httpx.Timeout(30.0, connect=10.0),  # crt.sh can be slow; was 20s
+        # 5s timeout per spec — on 502 we fall back to cache rather than waiting
+        timeout=httpx.Timeout(5.0, connect=5.0),
         headers=_HEADERS,
         follow_redirects=True,
     ) as client:
@@ -1251,6 +1321,13 @@ async def _fetch_crt_sh(query: str, limit: int = 10) -> list:
             CRT_SH_URL,
             params={"q": query, "output": "json"},
         )
+        if resp.status_code in (502, 503):
+            # Raise HTTPStatusError so callers can detect 502 and serve cached data
+            raise httpx.HTTPStatusError(
+                f"crt.sh upstream degraded ({resp.status_code})",
+                request=resp.request,
+                response=resp,
+            )
         if resp.status_code == 404:
             return []
         resp.raise_for_status()

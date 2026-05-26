@@ -284,6 +284,12 @@ async def canary_crt_sh(client: httpx.AsyncClient) -> dict:
             timeout=httpx.Timeout(45.0, connect=10.0),
         )
         lat = int((time.monotonic() - t0) * 1000)
+        # 502/503 = upstream hardware degraded (known issue since April 2026).
+        # Treat as DEGRADED — cached fallback active in tool layer, not a hard FAIL.
+        if resp.status_code in (502, 503):
+            return _result(source, tool_id, "DEGRADED", lat,
+                           f"crt.sh {resp.status_code} — upstream degraded, cached fallback active",
+                           error=f"HTTP {resp.status_code}: upstream hardware issue (April 2026)")
         resp.raise_for_status()
         data = resp.json()
         if isinstance(data, list) and len(data) > 0:
@@ -426,8 +432,11 @@ async def canary_cisa_kev(client: httpx.AsyncClient) -> dict:
     source, tool_id = "cisa_kev", "T10"
     t0 = time.monotonic()
     try:
+        # GitHub mirror used instead of cisa.gov direct — Akamai CDN blocks
+        # all datacenter IPs (403). Mirror is maintained by CISA officially:
+        # https://github.com/cisagov/kev-data
         resp = await client.get(
-            "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+            "https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json",
             headers={"User-Agent": "DataNexus MCP/1.0 (datanexusmcp.com)"},
             timeout=httpx.Timeout(30.0, connect=10.0),
         )
@@ -501,6 +510,76 @@ async def canary_regulations_gov(client: httpx.AsyncClient) -> dict:
         return _result(source, tool_id, "FAIL", lat, "Regulations.gov fetch success", error=str(exc))
 
 
+# ── Per-canary run intervals (quota protection) ────────────────────────────────
+
+# Maps canary source names to minimum hours between runs.
+# SAM.gov has a hard 1,000 req/day limit — running it every canary cycle
+# (hourly) exhausts the quota before real user tool calls can use it.
+_CANARY_INTERVALS: dict[str, int] = {
+    "sam_gov": 24,  # run_interval_hours=24: once per day at most
+}
+
+
+def _get_canary_last_run(source: str) -> Optional[str]:
+    """Read last canary run timestamp from Redis. Returns ISO string or None."""
+    try:
+        import redis as _redis
+        _r = _redis.from_url(
+            os.environ.get("DATANEXUS_REDIS_URL", "redis://localhost:6379"),
+            decode_responses=True, socket_connect_timeout=2,
+        )
+        return _r.get(f"datanexus:canary:{source}:last_run")
+    except Exception:
+        return None
+
+
+def _set_canary_last_run(source: str, interval_h: int) -> None:
+    """Write canary run timestamp to Redis (TTL = interval + 1h buffer)."""
+    try:
+        import redis as _redis
+        _r = _redis.from_url(
+            os.environ.get("DATANEXUS_REDIS_URL", "redis://localhost:6379"),
+            decode_responses=True, socket_connect_timeout=2,
+        )
+        _r.set(
+            f"datanexus:canary:{source}:last_run",
+            datetime.now(timezone.utc).isoformat(),
+            ex=interval_h * 3600 + 3600,
+        )
+    except Exception:
+        pass
+
+
+def _should_throttle_canary(source: str) -> bool:
+    """Return True if this canary is within its run_interval_hours window."""
+    interval_h = _CANARY_INTERVALS.get(source, 0)
+    if not interval_h:
+        return False
+    last_run_str = _get_canary_last_run(source)
+    if not last_run_str:
+        return False
+    try:
+        last_dt = datetime.fromisoformat(last_run_str)
+        elapsed_h = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600
+        return elapsed_h < interval_h
+    except Exception:
+        return False
+
+
+async def _run_or_throttle(canary_fn, client: httpx.AsyncClient) -> dict:
+    """Run a canary or return SKIP if within its run_interval_hours window."""
+    source = canary_fn.__name__.removeprefix("canary_")
+    if _should_throttle_canary(source):
+        interval_h = _CANARY_INTERVALS[source]
+        return _skip(source, "T22",
+                     f"run_interval_hours={interval_h}: SAM.gov quota protection active")
+    result = await canary_fn(client)
+    # Record run time after attempting (protects quota even on 429)
+    if source in _CANARY_INTERVALS:
+        _set_canary_last_run(source, _CANARY_INTERVALS[source])
+    return result
+
+
 # ── Redis write ────────────────────────────────────────────────────────────────
 
 def _write_to_redis(results: list[dict]) -> None:
@@ -558,7 +637,7 @@ async def run_all() -> list[dict]:
         headers=_HEADERS,
         follow_redirects=True,
     ) as client:
-        tasks = [canary(client) for canary in _CANARIES]
+        tasks = [_run_or_throttle(canary, client) for canary in _CANARIES]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
     final = []

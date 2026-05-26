@@ -1,7 +1,7 @@
 """
 datanexus/kev_refresh.py — CISA KEV catalog refresh.
 
-Downloads https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+Downloads from the official CISA GitHub mirror (cisagov/kev-data) — see KEV_URL constant.
 and stores in Redis as:
   datanexus:kev:catalog    — full catalog JSON (TTL 25h)
   datanexus:kev:fetched_at — ISO timestamp of last successful fetch (TTL 25h)
@@ -25,7 +25,10 @@ import redis as redis_lib
 
 log = logging.getLogger("datanexus.kev_refresh")
 
-KEV_URL        = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+# GitHub mirror used instead of cisa.gov direct — Akamai CDN blocks
+# all datacenter IPs (403). Mirror is maintained by CISA officially:
+# https://github.com/cisagov/kev-data
+KEV_URL        = "https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json"
 _REDIS_URL     = os.environ.get("DATANEXUS_REDIS_URL", "redis://localhost:6379")
 KEV_KEY        = "datanexus:kev:catalog"
 FETCHED_AT_KEY = "datanexus:kev:fetched_at"

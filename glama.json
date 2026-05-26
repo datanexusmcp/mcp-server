@@ -1,4 +1,9 @@
 {
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "maintainers": [
+    "datanexusmcp"
+  ],
+  "tools_count": 35,
   "name": "DataNexus MCP",
   "description": "CISA KEV · CVE EPSS · SBOM audit · patent search · nonprofit 990 data · government contracts · subdomain enumeration · domain RDAP · email security scoring. Public data intelligence for AI agents. Zero install, one URL: https://datanexusmcp.com/mcp",
   "url": "https://datanexusmcp.com/mcp",
