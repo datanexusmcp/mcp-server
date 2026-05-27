@@ -254,4 +254,6 @@ if __name__ == "__main__":
         host="0.0.0.0",   # nosec B104
         port=8000,
         middleware=[Middleware(_ClientIPMiddleware)],
+        stateless_http=True,
+        json_response=True,
     )
