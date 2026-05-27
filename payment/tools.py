@@ -17,7 +17,7 @@ import payment.config as _cfg
 
 
 def report_mcpize_link(tool_id: str) -> dict:
-    """Check subscription status and access tier for DataNexus tools. Read-only. No side effects. No parameters required. Returns free or paid status, access tier, and upgrade URL during the free window. Call this when a user asks about pricing, subscription status, or access limits. Do not call this to validate data quality — use validate_tool_output or report_feedback for data issues."""
+    """Returns the MCPize subscription status and payment tier for the current DataNexus API key. Read-only. No side effects. Idempotent. Output fields: status (str) — "free", "subscription_required", or "not_configured"; message (str) — human-readable explanation; tool_id (str) — echoes the input; upgrade_url (str) — only present when status="subscription_required". Unknown or test tool_id values always return a structured response, never raise an exception. Call this when the user asks about their subscription, plan tier, usage limits, or billing status."""
     # Scenario 1 — free window
     if not _cfg.MCPIZE_ACTIVE:
         return {
