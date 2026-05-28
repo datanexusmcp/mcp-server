@@ -1,242 +1,182 @@
+[![Glama](https://glama.ai/mcp/servers/badge/datanexusmcp)](https://glama.ai/mcp/servers/datanexusmcp) [![Smithery Badge](https://smithery.ai/badge/@datanexusmcp/mcp-server)](https://smithery.ai/server/@datanexusmcp/mcp-server) [![npm](https://img.shields.io/npm/v/@datanexusmcp/mcp-server)](https://www.npmjs.com/package/@datanexusmcp/mcp-server) [![MIT License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 # DataNexus MCP
 
-**CISA KEV, CVE EPSS, SBOM audits, patent search, nonprofit 990 data, government contracts, and domain intelligence for AI agents. Zero install. One URL.**
+**35 tools. One URL. No API key.**
 
-```
-https://datanexusmcp.com/mcp
-```
+Verified public data — CVE/SBOM security audits, nonprofit 990 filings, federal contracts, NPI lookups, patents, and domain intelligence — delivered as AI-Ready Markdown inside any MCP client.
 
----
+Connect in 30 seconds:
 
-## Security intelligence — without the setup
-
-CISA KEV, CVE exploit probability (EPSS), SBOM audits, subdomain enumeration,
-email security scoring, and CVE detail with remediation. Your AI assistant can
-now answer "is this package being actively exploited in the wild?" without Snyk,
-without Tenable, without SecurityTrails, and without any API key.
-
-### `security_fetch_cisa_kev` — Is this CVE actively exploited?
-Check any CVE against the CISA Known Exploited Vulnerabilities catalog.
-Returns `in_kev`, date added, remediation due date, and ransomware use flag.
-CISA KEV is the authoritative US government list of CVEs with confirmed
-active exploitation. Not available in NVD or OSV.
-*"Is CVE-2021-44228 being exploited right now?" → yes, since 2021-12-10,
-ransomware campaigns confirmed.*
-
-### `security_fetch_cve_epss` — How likely is this to be exploited?
-CVSS tells you severity. EPSS tells you urgency.
-Returns exploit probability score (0.0–1.0) and percentile for any CVE.
-CVSS 9.8 + EPSS 0.02 = theoretical risk. CVSS 7.5 + EPSS 0.94 = fix now.
-Source: FIRST.org EPSS model, recalculated daily.
-
-### `security_fetch_package_vulnerabilities` — All CVEs for a package
-CVEs, CVSS scores, severity, and fixed versions across PyPI, npm, Maven,
-Go, Cargo, NuGet, and RubyGems. Now supports batch input — check up to
-50 packages in one call. Real package.json files have hundreds of
-dependencies. This tool handles them.
-Source: Google OSV.dev + NIST NVD.
-
-### `security_fetch_cve_detail` — Full CVE with remediation
-Full CVE detail plus remediation: exactly which package versions to upgrade
-to, pulled from OSV advisory data. "You have CVE-2023-1234" is useless
-without "upgrade lodash to 4.17.21 to fix it."
-
-### `security_fetch_cve_epss` — Exploit prediction score
-Probability a CVE will be exploited in the next 30 days.
-EPSS percentile tells you where this CVE sits relative to all others.
-
-### `security_audit_sbom_vulnerabilities` — Full SBOM audit in one call
-Submit a CycloneDX or SPDX SBOM as JSON. Get back every CVE across
-every package in your dependency manifest. Replaces a Snyk or Dependabot
-scan for research and triage workflows.
-
-### `security_fetch_dependency_graph` — Full supply chain exposure
-Complete dependency tree including transitive dependencies for any
-package version. Source: deps.dev (Google).
-
-### `security_fetch_package_licence` — Licence compliance check
-SPDX licence identifier for any package version. Catches GPL contamination
-before it reaches production. Source: deps.dev (Google).
-
----
-
-## Domain and DNS intelligence — deeper than WHOIS
-
-Subdomain enumeration, email security scoring, co-hosted domain discovery,
-SSL certificate history, live DNS, and RDAP registration. Everything
-SecurityTrails charges $200/month for — most of it free via crt.sh,
-Cloudflare DoH, and IANA RDAP.
-
-### `domain_fetch_subdomains` — Subdomain enumeration via CT logs
-All subdomains for any domain from Certificate Transparency logs.
-Deduplicated, sorted, wildcard entries stripped. The #1 recon feature
-security engineers check. Source: crt.sh (free, no auth).
-*"What subdomains does anthropic.com have?" → api., cdn., research., ...*
-
-### `domain_check_email_security` — SPF, DMARC, DKIM assessment
-Full email security posture: SPF policy and score, DMARC policy and
-reporting, DKIM selector discovery across 10 common selectors.
-Returns an overall grade (A–F) using a defined scoring rubric.
-Vendor security assessments always check this.
-*"Does google.com have proper email security?" → Grade A, p=reject DMARC,
--all SPF, multiple DKIM selectors found.*
-
-### `domain_fetch_reverse_ip` — Co-hosted domains on same IP
-All domains sharing the same IP address. Identifies shared hosting risk,
-maps corporate infrastructure, detects CDN configurations.
-Source: SecurityTrails (1,000 free queries/month — requires API key).
-
-### `domain_fetch_domain_rdap` — Registration via IANA RDAP
-Registrar, registration date, expiry date, nameservers, registrant info.
-Modern structured replacement for WHOIS. Source: IANA RDAP.
-
-### `domain_fetch_ssl_certificate_chain` — Certificate history
-SSL certificate issuance history from Certificate Transparency logs.
-Detect unexpected certificate issuance. Source: crt.sh.
-
-### `domain_fetch_dns_records` — Live DNS resolution
-A, AAAA, MX, TXT, NS, CNAME records via Cloudflare DoH.
-Specify which record types you need.
-
-### `domain_fetch_domain_history` — Historical cert issuance
-All past certificates for a domain with validity dates and SANs.
-Useful for detecting domain hijacking. Source: crt.sh.
-
----
-
-## Patent intelligence — EPO, USPTO, WIPO
-
-Search patents by keyword across European, US, and PCT patent offices.
-Fetch full bibliographic data, citation chains, and inventor portfolios.
-No subscription. No patent database login.
-
-### `legal_fetch_patent_by_number`
-Full patent details by number — title, abstract, inventors, assignees,
-filing date, claims summary, citation count. Jurisdictions: EP, US, WO.
-
-### `legal_search_patents_by_keyword`
-Search by keyword and date across EPO, USPTO, or WIPO.
-Returns up to 10 matching patents with titles and filing dates.
-*Good for: prior art research, technology landscape analysis.*
-
-### `legal_fetch_patent_citations`
-Forward and backward citation chains for any patent.
-Build a complete prior art citation graph.
-
-### `legal_fetch_inventor_portfolio`
-All patents for a named inventor with optional assignee filter.
-Filing dates, jurisdictions, and current status.
-
----
-
-## Nonprofit data — IRS 990 and UK Charity Commission
-
-### `nonprofit_fetch_nonprofit_by_ein`
-IRS 990 filing data for any US nonprofit by EIN.
-Revenue, expenses, assets, NTEE code, mission. Source: IRS EO BMF + TEOS.
-
-### `nonprofit_search_nonprofits_by_name`
-Search US nonprofits by name with optional state filter. Up to 25 results.
-
-### `nonprofit_fetch_charity_uk`
-UK registered charity details by charity number or name.
-Income, expenditure, activities. Source: UK Charity Commission (OGL v3).
-
----
-
-## Government contracting — US, EU, UK
-
-### `govcon_search_contract_awards`
-Search federal contract awards by keyword, agency, and date.
-Award amounts, recipients, NAICS codes.
-Sources: USASpending.gov + SAM.gov (US), EU TED (EU), Find-a-Tender (UK).
-
-### `govcon_fetch_vendor_contract_history`
-Complete contract award history for any vendor.
-Total awards, top agencies, recent contracts.
-
-### `govcon_fetch_open_solicitations`
-Currently open contract opportunities matching a keyword.
-Title, agency, deadline, estimated value, NAICS code.
-
----
-
-## Regulatory tracking — Regulations.gov and Federal Register
-
-### `regulatory_search_open_rulemakings`
-Open rulemakings and comment periods by keyword and agency.
-Returns docket ID, comment deadline, document count.
-
-### `regulatory_fetch_docket_details`
-Full details for a specific docket by ID.
-Status, comment period dates, total comments, related documents.
-
-### `regulatory_fetch_federal_register_notices`
-Recent Federal Register notices for any agency.
-Filter by keyword and date. CFR citations included.
-
----
-
-## Compliance verification — NPI, FINRA, SAM.gov
-
-### `compliance_fetch_npi_provider`
-NPI registration for any US healthcare provider by 10-digit NPI.
-Name, credential, speciality, practice address, active status.
-
-### `compliance_search_npi_by_name`
-Search NPPES NPI Registry by name with state and speciality filters.
-
-### `compliance_fetch_finra_broker`
-FINRA BrokerCheck registration by CRD number.
-Qualifications, disclosures, employment history.
-
-### `compliance_check_sam_exclusion`
-Check the federal exclusions list by name or EIN.
-Returns excluded status, exclusion type, and dates.
-
----
-
-## Start here
-
-Call `search_datanexus_tools` first with a plain English description
-of your task. It returns the exact tool and parameters to use.
-Cuts context load from 40,000 tokens to under 800.
-
-```
-search_datanexus_tools("is this CVE being actively exploited")
-search_datanexus_tools("check email security for a domain")
-search_datanexus_tools("find all subdomains of a company")
-search_datanexus_tools("audit a Python package for CVEs")
-search_datanexus_tools("look up government contracts for a vendor")
-```
-
----
-
-## Connect
-
-**Claude Desktop / Cursor / Windsurf**
 ```json
 {
   "mcpServers": {
     "datanexus": {
-      "url": "https://datanexusmcp.com/mcp",
-      "transport": "streamable-http"
+      "type": "http",
+      "url": "https://datanexusmcp.com/mcp"
     }
   }
 }
 ```
 
-**Via npx**
+---
+
+## Who Uses DataNexus
+
+**Compliance analysts** running background checks across IRS, SAM.gov, and NPPES — manually 45 minutes, with DataNexus 4 minutes.
+
+**Security engineers** auditing SBOMs against CISA KEV before federal software submissions — manually 2 hours, with DataNexus one tool call.
+
+**Researchers and journalists** following money across nonprofits, government contracts, and patent filings — without switching between 6 different government websites.
+
+**M&A and legal teams** doing due diligence on organizations — SAM exclusion checks, contract history, NPI verification, and patent portfolio in a single Claude conversation.
+
+---
+
+## 5-Minute Quickstart
+
+Copy any of these into Claude after connecting DataNexus:
+
+**Nonprofit due diligence:**
+> "Look up EIN 46-5734087, check if they're excluded from federal contracts, and find any government contracts they've won."
+
+**Security audit:**
+> "Check lodash 4.17.15 for CVEs, get the EPSS exploit probability for any critical findings, and check if they're on the CISA KEV list."
+
+**Healthcare provider verification:**
+> "Find NPI records for Dr. Jane Smith in California and verify their FINRA registration."
+
+**Patent research:**
+> "Search patents by keyword 'federated learning privacy' and pull the full record for the most recent filing."
+
+**Government contractor check:**
+> "Get the federal contract history for Lockheed Martin and check for any open solicitations in AI."
+
+---
+
+## Tools (35 total)
+
+Start with `search_datanexus_tools("your task in plain English")` to get the exact tool and parameters — reduces context from 40,000 tokens to under 800.
+
+### T04 — Security
+
+| Tool | What it returns | Source |
+|------|----------------|--------|
+| `security_fetch_cisa_kev` | KEV status, date added, ransomware flag for any CVE | CISA |
+| `security_fetch_cve_epss` | Exploit probability score + percentile, recalculated daily | FIRST.org |
+| `security_fetch_cve_detail` | Full CVE with CVSS, description, and exact versions to upgrade | OSV + NVD |
+| `security_fetch_package_vulnerabilities` | All CVEs for a package — PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems; up to 50 packages per call | OSV + NVD |
+| `security_audit_sbom_vulnerabilities` | Full CVE audit for a CycloneDX or SPDX SBOM | OSV + NVD |
+| `security_fetch_dependency_graph` | Complete transitive dependency tree for any package version | deps.dev |
+| `security_fetch_package_licence` | SPDX licence identifier — catches GPL contamination before production | deps.dev |
+
+### T07 — Domain Intelligence
+
+| Tool | What it returns | Source |
+|------|----------------|--------|
+| `domain_fetch_subdomains` | All subdomains from Certificate Transparency logs, deduplicated | crt.sh |
+| `domain_check_email_security` | SPF, DMARC, DKIM assessment with A–F grade | DNS / Cloudflare DoH |
+| `domain_fetch_reverse_ip` | All domains co-hosted on the same IP | SecurityTrails |
+| `domain_fetch_domain_rdap` | Registrar, registration date, expiry, nameservers | IANA RDAP |
+| `domain_fetch_ssl_certificate_chain` | Certificate issuance history from CT logs | crt.sh |
+| `domain_fetch_dns_records` | Live A, AAAA, MX, TXT, NS, CNAME records | Cloudflare DoH |
+| `domain_fetch_domain_history` | Past certificates with validity dates and SANs | crt.sh |
+
+### T10 — Patents
+
+| Tool | What it returns | Source |
+|------|----------------|--------|
+| `legal_fetch_patent_by_number` | Title, abstract, inventors, assignees, filing date, claims summary | EPO OPS / USPTO |
+| `legal_search_patents_by_keyword` | Up to 10 matching patents by keyword and date across EP, US, WO | EPO OPS / USPTO |
+| `legal_fetch_patent_citations` | Forward and backward citation chains for any patent | EPO OPS / USPTO |
+| `legal_fetch_inventor_portfolio` | All patents for a named inventor with optional assignee filter | EPO OPS / USPTO |
+
+### T11 — Nonprofits
+
+| Tool | What it returns | Source |
+|------|----------------|--------|
+| `nonprofit_fetch_nonprofit_by_ein` | IRS 990 data: revenue, expenses, assets, NTEE code, mission | IRS EO BMF + TEOS |
+| `nonprofit_search_nonprofits_by_name` | Up to 25 US nonprofits by name with optional state filter | IRS EO BMF |
+| `nonprofit_fetch_charity_uk` | UK charity income, expenditure, activities by number or name | UK Charity Commission |
+
+### T18 — Government Contracting
+
+| Tool | What it returns | Source |
+|------|----------------|--------|
+| `govcon_search_contract_awards` | Federal awards by keyword, agency, date — amounts, recipients, NAICS codes | USASpending + SAM.gov |
+| `govcon_fetch_vendor_contract_history` | Complete award history for any vendor — total, top agencies, recent contracts | USASpending |
+| `govcon_fetch_open_solicitations` | Open opportunities by keyword — title, agency, deadline, estimated value | SAM.gov |
+
+### T19 — Regulatory
+
+| Tool | What it returns | Source |
+|------|----------------|--------|
+| `regulatory_search_open_rulemakings` | Open rulemakings by keyword and agency — docket ID, comment deadline | Regulations.gov |
+| `regulatory_fetch_docket_details` | Full docket: status, comment period dates, document count | Regulations.gov |
+| `regulatory_fetch_federal_register_notices` | Recent Federal Register notices filtered by agency and keyword, with CFR citations | Federal Register API |
+
+### T22 — Compliance
+
+| Tool | What it returns | Source |
+|------|----------------|--------|
+| `compliance_fetch_npi_provider` | NPI registration: name, credential, specialty, practice address, active status | NPPES (CMS) |
+| `compliance_search_npi_by_name` | NPI Registry search by name, state, and specialty — up to 25 results | NPPES (CMS) |
+| `compliance_fetch_finra_broker` | BrokerCheck: qualifications, disclosures, employment history by CRD number | FINRA |
+| `compliance_check_sam_exclusion` | Federal exclusion status by name or EIN — exclusion type and dates | SAM.gov |
+
+---
+
+## Why Not Just Use the Government Websites?
+
+| Data | Manual source | Manual time | DataNexus |
+|------|--------------|-------------|-----------|
+| Nonprofit financials | IRS Tax Exempt Search + CSV download | 12 min | 2 sec |
+| SAM exclusions | SAM.gov exclusions portal | 8 min | 1 sec |
+| CVE details + CVSS | NVD search + JSON parsing | 10 min | 1 sec |
+| SBOM audit vs KEV | Grype + manual KEV cross-ref | 60 min | 3 sec |
+| Federal contracts | USASpending.gov export | 25 min | 2 sec |
+| NPI verification | NPPES NPI Registry | 8 min | 1 sec |
+| Patent search | Google Patents + USPTO | 20 min | 2 sec |
+
+All sources are public. DataNexus normalises, caches, and delivers them as AI-Ready Markdown so your agent gets structured data, not HTML to parse.
+
+---
+
+## Installation
+
+### Hosted (recommended — no setup)
+
+```json
+{
+  "mcpServers": {
+    "datanexus": {
+      "type": "http",
+      "url": "https://datanexusmcp.com/mcp"
+    }
+  }
+}
+```
+
+### Via npx (for stdio clients like Claude Desktop)
+
 ```bash
 npx -y @datanexusmcp/mcp-server
 ```
 
+### Via npm (for programmatic use)
+
+```bash
+npm install @datanexusmcp/mcp-server
+```
+
+No API keys required for any tool on the free tier.
+
 ---
 
-## Data sources and freshness
+## Data Sources
 
 | Vertical | Source | Cache TTL |
-|---|---|---|
+|----------|--------|-----------|
 | CISA KEV | cisa.gov | 24-hour refresh |
 | CVE EPSS | FIRST.org | 6-hour cache |
 | CVE / vulnerabilities | Google OSV.dev + NIST NVD | 1-hour cache |
@@ -258,5 +198,8 @@ npx -y @datanexusmcp/mcp-server
 | FINRA BrokerCheck | FINRA | 24-hour cache |
 | SAM.gov exclusions | SAM.gov | 24-hour cache |
 
-All sources are authoritative government or institutional databases.
-No scraping. No third-party aggregators for most tools.
+All sources are authoritative government or institutional databases. No scraping. No third-party aggregators for most tools.
+
+---
+
+[![mcp-server MCP server](https://glama.ai/mcp/servers/badge/datanexusmcp)](https://glama.ai/mcp/servers/datanexusmcp)
