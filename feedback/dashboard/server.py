@@ -550,6 +550,95 @@ def _build_health_panel(
 
 # ── Section 13 data helpers ───────────────────────────────────────────────────
 
+async def get_activation_funnel() -> dict[str, Any]:
+    """
+    Return activation funnel counts and latest events from activation_events.
+
+    Returns zero counts gracefully when the table doesn't exist yet or the
+    DB is unavailable — the gate requires all 5 event_type keys to be present.
+    """
+    empty: dict[str, Any] = {
+        "first_call":    0,
+        "real_query":    0,
+        "multi_tool":    0,
+        "return_visit":  0,
+        "power_user":    0,
+        "conversion_rate": 0.0,
+    }
+
+    db_url = os.environ.get("DATANEXUS_DB_URL", "").strip()
+    if not db_url or not db_url.startswith(("postgresql://", "postgres://")):
+        return empty
+
+    try:
+        import asyncpg
+    except ImportError:
+        return empty
+
+    try:
+        conn = await asyncpg.connect(db_url, command_timeout=5)
+    except Exception as exc:
+        log.warning("get_activation_funnel: DB connect failed — %s", exc)
+        return empty
+
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT
+                event_type,
+                COUNT(DISTINCT client_ip) AS unique_users,
+                COUNT(*)                  AS total_events
+            FROM activation_events
+            WHERE created_at >= NOW() - INTERVAL '30 days'
+            GROUP BY event_type
+            """
+        )
+    except Exception as exc:
+        log.warning("get_activation_funnel: query failed — %s", exc)
+        await conn.close()
+        return empty
+
+    latest_rows = []
+    try:
+        latest_rows_raw = await conn.fetch(
+            """
+            SELECT client_ip, event_type, tool_id, metadata, created_at
+            FROM activation_events
+            ORDER BY created_at DESC
+            LIMIT 10
+            """
+        )
+        latest_rows = [
+            {
+                "client_ip":  r["client_ip"],
+                "event_type": r["event_type"],
+                "tool_id":    r["tool_id"],
+                "metadata":   json.loads(r["metadata"]) if r["metadata"] else {},
+                "created_at": r["created_at"].isoformat(),
+            }
+            for r in latest_rows_raw
+        ]
+    except Exception as exc:
+        log.warning("get_activation_funnel: latest query failed — %s", exc)
+    finally:
+        await conn.close()
+
+    counts: dict[str, int] = {r["event_type"]: r["unique_users"] for r in rows}
+    first = counts.get("first_call", 0)
+    real  = counts.get("real_query", 0)
+    conversion_rate = round(real / first * 100, 1) if first > 0 else 0.0
+
+    return {
+        "first_call":       first,
+        "real_query":       real,
+        "multi_tool":       counts.get("multi_tool", 0),
+        "return_visit":     counts.get("return_visit", 0),
+        "power_user":       counts.get("power_user", 0),
+        "conversion_rate":  conversion_rate,
+        "latest_activations": latest_rows,
+    }
+
+
 def _get_s13_stats() -> dict[str, Any]:
     """
     Fetch all four Section 13 dashboard elements from Redis in one pass.
@@ -643,6 +732,50 @@ def _build_dau_sparkline(dau_7d: list[dict]) -> str:
     return "".join(bars[min(7, int(v / mx * 7))] for v in vals)
 
 
+def _build_activation_panel(funnel: dict) -> str:
+    """Render the activation funnel as a text-bar HTML panel."""
+    levels = [
+        ("first_call",   "First call"),
+        ("real_query",   "Real query"),
+        ("multi_tool",   "Multi-tool"),
+        ("return_visit", "Return visit"),
+        ("power_user",   "Power user"),
+    ]
+    first = funnel.get("first_call", 0) or 1   # avoid /0
+
+    rows_html = ""
+    for key, label in levels:
+        count = funnel.get(key, 0)
+        pct   = round(count / first * 100)
+        bar_w = max(1, min(200, int(count / first * 200))) if count > 0 else 0
+        pct_str = f"({pct}% of first calls)" if key != "first_call" else ""
+        bar_html = (
+            f'<span style="display:inline-block;width:{bar_w}px;height:14px;'
+            f'background:#3b82f6;border-radius:2px;vertical-align:middle"></span>'
+            if bar_w > 0 else ""
+        )
+        rows_html += (
+            f"<tr>"
+            f"<td style='width:110px'>{label}</td>"
+            f"<td style='width:220px'>{bar_html}</td>"
+            f"<td><strong>{count}</strong></td>"
+            f"<td style='color:#64748b;font-size:0.85rem'>{pct_str}</td>"
+            f"</tr>\n"
+        )
+
+    conv = funnel.get("conversion_rate", 0.0)
+    return f"""
+  <h2>Activation Funnel — last 30 days</h2>
+  <p class="note">Unique users reaching each milestone. Conversion rate: real_query / first_call.</p>
+  <table>
+    <thead><tr><th>Level</th><th>Bar</th><th>Unique users</th><th>Rate</th></tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+  <p class="note" style="margin-top:0.5rem">
+    Conversion rate (real_query ÷ first_call): <strong>{conv}%</strong>
+  </p>"""
+
+
 def _build_html(
     feedback_tools: dict,
     queue_stats: dict,
@@ -651,6 +784,7 @@ def _build_html(
     s13_stats: Optional[dict] = None,
     smoke_data: Optional[list] = None,
     canary_data: Optional[list] = None,
+    activation_data: Optional[dict] = None,
 ) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -915,6 +1049,11 @@ def _build_html(
   ══════════════════════════════════════════════════════════════ -->
   {s13_section}
 
+  <!-- ══════════════════════════════════════════════════════════════
+       Activation Funnel — added May 29 2026
+  ══════════════════════════════════════════════════════════════ -->
+  {_build_activation_panel(activation_data if activation_data else {})}
+
 </body>
 </html>"""
 
@@ -924,18 +1063,20 @@ def _build_html(
 @app.get("/", response_class=HTMLResponse)
 async def index() -> HTMLResponse:
     """Main dashboard — HTML with agent status banner (FEEDBACK_AGENTS_ACTIVE + MCPIZE_ACTIVE)."""
-    feedback_tools = _get_feedback_stats()
-    queue_stats    = _get_queue_stats()
-    usage_tools    = get_usage_summary()
-    conv_stats     = get_conversion_stats()
-    s13_stats      = _get_s13_stats()
-    smoke_items    = _get_smoke_data()
-    canary_items   = _get_canary_data()
+    feedback_tools  = _get_feedback_stats()
+    queue_stats     = _get_queue_stats()
+    usage_tools     = get_usage_summary()
+    conv_stats      = get_conversion_stats()
+    s13_stats       = _get_s13_stats()
+    smoke_items     = _get_smoke_data()
+    canary_items    = _get_canary_data()
+    activation_data = await get_activation_funnel()
     html = _build_html(
         feedback_tools, queue_stats, usage_tools, conv_stats,
         s13_stats=s13_stats,
         smoke_data=smoke_items,
         canary_data=canary_items,
+        activation_data=activation_data,
     )
     return HTMLResponse(content=html, status_code=200)
 
@@ -945,16 +1086,18 @@ async def api_summary() -> JSONResponse:
     """
     JSON summary with 'summary' and 'tools' keys.
 
-    summary  — totals, agent state, MCPIZE_ACTIVE, queue depths, smoke/canary counts
+    summary  — totals, agent state, MCPIZE_ACTIVE, queue depths, smoke/canary counts,
+               activation_funnel (5 levels + conversion_rate)
     tools    — per-tool feedback + usage stats merged
     """
-    feedback_tools = _get_feedback_stats()
-    queue_stats    = _get_queue_stats()
-    usage_tools    = get_usage_summary()
-    conv_stats     = get_conversion_stats()
-    s13_stats      = _get_s13_stats()
-    smoke_items    = _get_smoke_data()
-    canary_items   = _get_canary_data()
+    feedback_tools  = _get_feedback_stats()
+    queue_stats     = _get_queue_stats()
+    usage_tools     = get_usage_summary()
+    conv_stats      = get_conversion_stats()
+    s13_stats       = _get_s13_stats()
+    smoke_items     = _get_smoke_data()
+    canary_items    = _get_canary_data()
+    activation_data = await get_activation_funnel()
 
     # ── Smoke counts ──────────────────────────────────────────────────────────
     smoke_counts: dict[str, int] = {"PASS": 0, "FAIL": 0, "DEGRADED": 0, "SKIP": 0}
@@ -1009,9 +1152,19 @@ async def api_summary() -> JSONResponse:
             "haiku_daily_limit":        HAIKU_MAX_CALLS_PER_DAY,
             "pending_github_issues":    s13_stats["pending_github_issues"],
             "digest_available":         s13_stats["digest_available"],
+            # ── Activation funnel (added May 29 2026) ────────────────────────
+            "activation_funnel": {
+                "first_call":    activation_data.get("first_call",    0),
+                "real_query":    activation_data.get("real_query",    0),
+                "multi_tool":    activation_data.get("multi_tool",    0),
+                "return_visit":  activation_data.get("return_visit",  0),
+                "power_user":    activation_data.get("power_user",    0),
+                "conversion_rate": activation_data.get("conversion_rate", 0.0),
+            },
             # ─────────────────────────────────────────────────────────────────
             "generated_at":             datetime.now(timezone.utc).isoformat(),
         },
+        "latest_activations": activation_data.get("latest_activations", []),
         "tools": merged,
     })
 

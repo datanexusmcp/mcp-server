@@ -32,6 +32,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from datanexus.core.activation_detector import UsageRow, check as _activation_check
+from datanexus.core.ip_classifier import classify_ip
+
 log = logging.getLogger("datanexus.usage_recorder")
 
 # ── Pool singleton ─────────────────────────────────────────────────────────────
@@ -160,6 +163,21 @@ async def record_usage(
                 latency_ms,
                 is_smoke,
             )
+
+        # Activation milestone check — fire-and-forget, never raises
+        try:
+            _ip_class = classify_ip(client_ip)
+            _row = UsageRow(
+                client_ip=client_ip,
+                tool_id=tool_id,
+                tool_input=safe_input,
+                is_smoke=is_smoke,
+                is_grey=_ip_class.get("is_grey", False),
+            )
+            await _activation_check(_row)
+        except Exception as _act_exc:
+            log.warning("UsageRecorder: activation check failed (non-fatal): %s", _act_exc)
+
     except Exception as exc:
         # Log but never raise — a DB hiccup must never kill a tool call
         log.warning("UsageRecorder.record_usage failed (non-fatal): %s", exc)

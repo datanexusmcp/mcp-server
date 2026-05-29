@@ -66,6 +66,9 @@ SERVER ALIASES (available on Hetzner):
                   curl -s http://localhost:8101/ops/daily | python3 -m json.tool
   dn-returning  — returning users (2+ calendar days) ⏳ data pending
                   curl -s http://localhost:8101/ops/returning-users | python3 -m json.tool
+  dn-activation-events — last 50 activation events (last 7 days)
+  dn-funnel            — funnel counts per event_type (all 5 levels, last 30 days)
+                         Gate: must return 5 rows even when counts are 0
 
 ═══════════════════════════════════════════════════════
 USAGE TABLE SCHEMA (PostgreSQL)
@@ -657,6 +660,69 @@ Haiku cost: ~$0.10/month
 Phase 2 (Day 60): flip MCPIZE_ACTIVE=true
 T12 Sanctions: DEFERRED to Sprint 5+
   (needs legal entity established first)
+
+═══════════════════════════════════════════════════════
+ACTIVATION ANALYTICS (added May 29 2026)
+═══════════════════════════════════════════════════════
+
+activation_events TABLE (PostgreSQL):
+  id          SERIAL PRIMARY KEY
+  client_ip   TEXT NOT NULL
+  event_type  TEXT NOT NULL   (5 values — see below)
+  tool_id     TEXT
+  session_id  TEXT
+  metadata    JSONB
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+
+  Migration: datanexus/core/db_migrations/add_activation_events.sql
+  Run: cd /app/datanexus && docker compose exec postgres \
+         psql -U dn datanexus -f /migrations/add_activation_events.sql
+
+5 ACTIVATION LEVELS:
+  first_call   — IP's very first tool call ever
+  real_query   — non-example, non-test input (len > 10 chars,
+                 not in EXAMPLE_INPUTS for that tool_id)
+  multi_tool   — 3+ distinct tools used in 30-min rolling window
+  return_visit — called tools on 2nd distinct calendar day
+  power_user   — 10+ calls in a rolling 7-day window
+
+HOW IT WORKS:
+  activation_detector.check() called (awaited) from
+  usage_recorder.record_usage() after every INSERT.
+  Fire-and-forget — never raises, never blocks tool call.
+  Grey IPs, smoke tests, and Glama tester range (172.6.x)
+  are skipped before any DB query.
+  EXAMPLE_INPUTS per tool are excluded from real_query detection.
+
+FILES:
+  datanexus/core/activation_detector.py  — detector logic + pool
+  datanexus/core/usage_recorder.py       — hook (await check after INSERT)
+  datanexus/core/db_migrations/add_activation_events.sql
+  datanexus/scripts/backfill_activation.py  — one-time history replay
+  feedback/dashboard/server.py           — /api/summary activation_funnel
+                                           + HTML funnel panel
+
+SERVER ALIASES (add to ~/.bashrc on Hetzner):
+  dn-activation-events  — last 50 activation events (7-day window)
+  dn-funnel             — funnel counts per event_type (all 5 levels)
+
+DASHBOARD:
+  GET /api/summary includes:
+    summary.activation_funnel.first_call
+    summary.activation_funnel.real_query
+    summary.activation_funnel.multi_tool
+    summary.activation_funnel.return_visit
+    summary.activation_funnel.power_user
+    summary.activation_funnel.conversion_rate  (real_query/first_call %)
+  latest_activations: last 10 activation_events rows
+
+BACKFILL:
+  Run once after migration to populate from existing usage history:
+    docker compose exec datanexus-mcp \
+      python3 -m datanexus.scripts.backfill_activation
+  Expected: 173.66.27.4 → first_call + real_query
+            160.79.106.x → first_call
+            MN due diligence user → multi_tool
 
 ═══════════════════════════════════════════════════════
 PRIORITY TODO LIST
