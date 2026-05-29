@@ -80,6 +80,7 @@ from datanexus.db_init import init_db
 from datanexus.core.prewarm import prewarm_cache
 from datanexus.analytics import track_server_start, shutdown as ph_shutdown
 from datanexus.kev_refresh import kev_initial_load
+from datanexus.schedulers import _cve_refresh_loop, _sbom_refresh_loop, _typosquat_ref_loop
 
 # ── Sub-server imports (P01) ──────────────────────────────────────────────────
 from datanexus.tools.nonprofit  import nonprofit
@@ -89,6 +90,11 @@ from datanexus.tools.domain     import domain
 from datanexus.tools.legal      import legal
 from datanexus.tools.govcon     import govcon
 from datanexus.tools.regulatory import regulatory
+
+# ── Sprint 6 sub-server imports ───────────────────────────────────────────────
+from datanexus.tools.security_sprint6  import security_sprint6
+from datanexus.tools.nonprofit_sprint6 import nonprofit_sprint6 as nonprofit_sprint6_server
+from datanexus.tools.security_stateful import security_stateful
 
 # ── Section 13 validation tool ───────────────────────────────────────────────
 from datanexus.tools.validation import validate_tool_output
@@ -145,6 +151,10 @@ async def _lifespan(server):
     asyncio.ensure_future(prewarm_cache())
     # KEV catalog initial load — runs in background, swallows all errors
     asyncio.ensure_future(kev_initial_load())
+    # Sprint 6 scheduler loops — 24h background refresh cycles
+    asyncio.create_task(_cve_refresh_loop())
+    asyncio.create_task(_sbom_refresh_loop())
+    asyncio.create_task(_typosquat_ref_loop())
     tools = await server.list_tools()
     asyncio.create_task(track_server_start(len(tools)))
     yield
@@ -162,6 +172,7 @@ main = FastMCP(
         "nonprofit_fetch_nonprofit_by_ein: look up any US nonprofit by EIN. "
         "nonprofit_search_nonprofits_by_name: search US nonprofits by name and state. "
         "nonprofit_fetch_charity_uk: look up UK registered charities. "
+        "nonprofit_fetch_nonprofit_full_profile: complete nonprofit due diligence — revenue trends, executive pay, risk flags, and a 0–100 health score. "
         "T10: OSS Dependency & Vulnerability Intelligence — OSV.dev + NIST NVD + deps.dev + CISA KEV + FIRST EPSS. "
         "security_fetch_package_vulnerabilities: CVEs for a package version (or batch up to 50 packages). "
         "security_fetch_dependency_graph: full dep tree (hard 8s timeout). "
@@ -170,6 +181,11 @@ main = FastMCP(
         "security_fetch_package_licence: SPDX licence for a package version. "
         "security_fetch_cisa_kev: check if a CVE is in the CISA Known Exploited Vulnerabilities catalog. "
         "security_fetch_cve_epss: EPSS exploit probability score for a CVE from FIRST.org. "
+        "security_fetch_package_maintainer_history: maintainer health + ownership anomaly score for npm/PyPI packages. "
+        "security_fetch_package_risk_brief: SHIP/CAUTION/BLOCK verdict combining CVEs, licence, maintainer health, and transitive deps in one call. "
+        "security_fetch_cve_watch: persistent CVE watchlist — create once, check anytime for patch releases, KEV listings, PoC publications, exploitation detected. "
+        "security_audit_sbom_continuous: persistent SBOM watch — register once, check anytime for new CVEs affecting your dependency snapshot. CycloneDX and SPDX supported. "
+        "security_detect_typosquatting: detect supply-chain typosquatting attacks — Damerau-Levenshtein distance ≤ 2 against top-10k npm/PyPI packages. "
         "T22: Professional Licence Verification — NPPES NPI Registry + FINRA BrokerCheck + SAM.gov. "
         "compliance_fetch_npi_provider: look up any US healthcare provider by NPI number. "
         "compliance_search_npi_by_name: search NPI registry by provider name with state/speciality filters. "
@@ -209,6 +225,11 @@ main.mount(legal,       namespace="legal")
 main.mount(govcon,      namespace="govcon")
 main.mount(regulatory,  namespace="regulatory")
 
+# ── Mount Sprint 6 sub-servers ────────────────────────────────────────────────
+main.mount(security_sprint6,          namespace="security")
+main.mount(nonprofit_sprint6_server,  namespace="nonprofit")
+main.mount(security_stateful,         namespace="security")
+
 # ── Register shared infrastructure tools (once — not per-tool duplicates) ─────
 main.tool()(report_feedback)
 main.tool()(report_mcpize_link)
@@ -226,7 +247,7 @@ async def health(request: Request) -> JSONResponse:
     return JSONResponse({
         "status": "ok",
         "service": "datanexus-mcp",
-        "tools": 35,
+        "tools": 41,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -246,7 +267,7 @@ async def mcp_manifest(request: Request) -> JSONResponse:
 if __name__ == "__main__":
     logger.info(
         "DataNexus MCP starting — transport=streamable-http — "
-        "35 tools registered (nonprofit×3, security×7, compliance×4, domain×7, "
+        "41 tools registered (nonprofit×4, security×12, compliance×4, domain×7, "
         "legal×4, govcon×3, regulatory×3, Shared×3, meta×1)"
     )
     main.run(

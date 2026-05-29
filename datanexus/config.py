@@ -35,6 +35,12 @@ if _fte_raw:
 # --- Auth -----------------------------------------------------------------
 DATANEXUS_API_KEY: str = os.environ.get("DATANEXUS_API_KEY", "")  # pragma: allowlist secret
 
+# --- Sprint 6 API keys ---------------------------------------------------
+# NVD_API_KEY — free at nvd.nist.gov/developers/request-an-api-key
+# Without it: 5 req/30s → 100 min for 1,000 CVE lookups.
+# With it: 50 req/30s → 10 min. Required before fetch_cve_watch ships.
+NVD_API_KEY: str = os.environ.get("NVD_API_KEY", "")
+
 # --- T04 tool config ------------------------------------------------------
 T04_TOOL_ID = "T04"
 T04_CACHE_TTL = 7 * 24 * 3600  # 7 days — 990 filings are annual

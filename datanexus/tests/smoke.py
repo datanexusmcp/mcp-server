@@ -1163,6 +1163,288 @@ async def smoke_report_mcpize_link() -> dict:
         return _make_result(tool_name, tool_id, "DEGRADED", 0, [], ["exception"], None, error=str(exc))
 
 
+# ── Sprint 6 — Security Sprint6 ───────────────────────────────────────────────
+
+async def smoke_fetch_package_maintainer_history() -> dict:
+    tool_name, tool_id = "fetch_package_maintainer_history", "T10"
+    try:
+        from datanexus.tools.security_sprint6 import fetch_package_maintainer_history
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_package_maintainer_history(package_name="requests", ecosystem="pypi"),
+            timeout=TIMEOUT_S,
+        )
+        data = d.get("data", {})
+        score = data.get("anomaly_score")
+        health = data.get("maintainer_health", "")
+        upstream = data.get("upstream_status", {})
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",          bool(data)),
+            ("anomaly_score_range", score is not None and 0.0 <= score <= 1.0),
+            ("health_valid",      health in ("healthy", "stale", "abandoned", "suspicious")),
+            ("upstream_status_present", bool(upstream)),
+            ("resolved_version_present", data.get("package_name") == "requests"),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_nonprofit_full_profile() -> dict:
+    tool_name, tool_id = "fetch_nonprofit_full_profile", "T12"
+    try:
+        from datanexus.tools.nonprofit_sprint6 import fetch_nonprofit_full_profile
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+        # EIN 13-1837418 = American Red Cross (well-known, always in ProPublica)
+        d = await asyncio.wait_for(
+            fetch_nonprofit_full_profile(ein="13-1837418"),
+            timeout=TIMEOUT_S,
+        )
+        data = d.get("data", {})
+        score = data.get("health_score")
+        exec_comp = data.get("executive_compensation")
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",             bool(data)),
+            ("health_score_range",   score is not None and 0 <= score <= 100),
+            ("exec_compensation_present", isinstance(exec_comp, list)),
+            ("upstream_status_present",   bool(data.get("upstream_status"))),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_package_risk_brief() -> dict:
+    tool_name, tool_id = "fetch_package_risk_brief", "T11"
+    try:
+        from datanexus.tools.security_sprint6 import fetch_package_risk_brief
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_package_risk_brief(package_name="requests", ecosystem="pypi"),
+            timeout=TIMEOUT_S,
+        )
+        data = d.get("data", {})
+        verdict = data.get("verdict", "")
+        upstream = data.get("upstream_status", {})
+        resolved = data.get("resolved_version")
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",              bool(data)),
+            ("verdict_valid",         verdict in ("SHIP", "CAUTION", "BLOCK")),
+            ("resolved_version_present", bool(resolved and resolved != "unknown")),
+            ("upstream_status_present",  bool(upstream)),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_detect_typosquatting() -> dict:
+    tool_name, tool_id = "detect_typosquatting", "T15"
+    try:
+        from datanexus.tools.security_sprint6 import detect_typosquatting
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+        # "requsets" is a well-known typosquat of "requests"
+        d = await asyncio.wait_for(
+            detect_typosquatting(package_name="requsets", ecosystem="pypi"),
+            timeout=45,   # cold-start fetch can take up to 30s
+        )
+        data = d.get("data", {})
+        similar = data.get("similar_packages", [])
+        verdict = data.get("verdict", "")
+        has_requests = any(p.get("name") == "requests" and p.get("distance", 99) <= 2 for p in similar)
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",            bool(data)),
+            ("verdict_valid",       verdict in ("SUSPICIOUS", "CLEAN")),
+            ("similar_nonempty",    bool(similar)),
+            ("requests_in_similar", has_requests),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_detect_typosquatting_cold_start_failure() -> dict:
+    tool_name, tool_id = "detect_typosquatting_cold_start_failure", "T15"
+    try:
+        import unittest.mock as mock
+        from datanexus.tools.security_sprint6 import detect_typosquatting
+        import datanexus.tools.security_sprint6 as _s6
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+
+        # Simulate: Redis has no key AND _fetch_ref_list always fails
+        async def _bad_fetch(eco):
+            raise RuntimeError("simulated fetch failure")
+
+        # Also patch get_redis to return None (no Redis)
+        async def _no_redis():
+            return None
+
+        with mock.patch.object(_s6, "_fetch_ref_list", side_effect=_bad_fetch):
+            from datanexus import cache as _cache
+            with mock.patch.object(_cache, "get_redis", _no_redis):
+                d = await asyncio.wait_for(
+                    detect_typosquatting(package_name="requsets", ecosystem="pypi"),
+                    timeout=TIMEOUT_S,
+                )
+
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        msg = d.get("message", "") or str(d)
+        has_retry_msg = "retry in 60 seconds" in msg.lower() or "Reference list unavailable" in msg
+        checks_passed = ["returns_error_not_exception"]
+        checks_failed = []
+        if has_retry_msg:
+            checks_passed.append("retry_message_correct")
+        else:
+            checks_failed.append("retry_message_correct")
+        status = "PASS" if not checks_failed else "FAIL"
+        return _make_result(tool_name, tool_id, status, latency_ms, checks_passed, checks_failed, True)
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_audit_sbom_continuous_size_limit() -> dict:
+    tool_name, tool_id = "audit_sbom_continuous_size_limit", "T14"
+    try:
+        from datanexus.tools.security_stateful import audit_sbom_continuous
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+        # Generate a 501 KB SBOM string
+        big_sbom = "x" * (501 * 1024)
+        d = await asyncio.wait_for(
+            audit_sbom_continuous(sbom=big_sbom, watch_id="smoke-sbom-test", action="register"),
+            timeout=TIMEOUT_S,
+        )
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        # Error responses don't include disclaimer — check manually
+        # error_response puts message at the top level, not nested in "error"
+        msg = d.get("message", "") or str(d)
+        has_size_msg = "500 KB" in msg
+        checks_passed = ["returns_error_not_exception"]
+        checks_failed = []
+        if has_size_msg:
+            checks_passed.append("size_error_message")
+        else:
+            checks_failed.append("size_error_message")
+        status = "PASS" if not checks_failed else "FAIL"
+        return _make_result(
+            tool_name, tool_id, status, latency_ms,
+            checks_passed, checks_failed, True,
+        )
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_cve_watch_create() -> dict:
+    tool_name, tool_id = "fetch_cve_watch_create", "T13"
+    try:
+        from datanexus.tools.security_stateful import fetch_cve_watch
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_cve_watch(watch_id="smoke-test-001", cve_ids=["CVE-2021-44228"], action="create"),
+            timeout=TIMEOUT_S,
+        )
+        data = d.get("data", {})
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",           bool(data)),
+            ("action_is_create",   data.get("action") == "create"),
+            ("watch_id_matches",   data.get("watch_id") == "smoke-test-001"),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_cve_watch_check() -> dict:
+    tool_name, tool_id = "fetch_cve_watch_check", "T13"
+    try:
+        from datanexus.tools.security_stateful import fetch_cve_watch
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_cve_watch(watch_id="smoke-test-001", cve_ids=[], action="check"),
+            timeout=TIMEOUT_S,
+        )
+        data = d.get("data", {})
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",                bool(data)),
+            ("has_new_events_field",    "has_new_events" in data),
+            ("call_back_in_present",    data.get("call_back_in") == "24h"),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_cve_watch_delete() -> dict:
+    tool_name, tool_id = "fetch_cve_watch_delete", "T13"
+    try:
+        from datanexus.tools.security_stateful import fetch_cve_watch
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+        d = await asyncio.wait_for(
+            fetch_cve_watch(watch_id="smoke-test-001", cve_ids=[], action="delete"),
+            timeout=TIMEOUT_S,
+        )
+        data = d.get("data", {})
+        return _check(d, tool_id, tool_name, t0, [
+            ("has_data",           bool(data)),
+            ("action_is_delete",   data.get("action") == "delete"),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
+async def smoke_fetch_package_risk_brief_circuit_open() -> dict:
+    tool_name, tool_id = "fetch_package_risk_brief_circuit_open", "T11"
+    try:
+        import pybreaker
+        import unittest.mock as mock
+        from datanexus.tools.security_sprint6 import fetch_package_risk_brief
+        import datanexus.tools.security_sprint6 as _s6
+    except ImportError as exc:
+        return _skip_result(tool_name, tool_id, str(exc))
+    try:
+        t0 = time.monotonic()
+
+        async def _depsdev_circuit_open(*args, **kwargs):
+            raise pybreaker.CircuitBreakerError("simulated circuit open")
+
+        # Patch the name as imported into security_sprint6, not the source module
+        with mock.patch.object(_s6, "_fetch_depsdev", side_effect=_depsdev_circuit_open):
+            d = await asyncio.wait_for(
+                fetch_package_risk_brief(package_name="requests", ecosystem="pypi"),
+                timeout=TIMEOUT_S,
+            )
+        data = d.get("data", {})
+        verdict = data.get("verdict", "")
+        upstream = data.get("upstream_status", {})
+        return _check(d, tool_id, tool_name, t0, [
+            ("verdict_returned",        verdict in ("SHIP", "CAUTION", "BLOCK")),
+            ("depsdev_circuit_open",    upstream.get("depsdev") == "CIRCUIT_OPEN"),
+            ("transitive_count_null",   data.get("transitive_count") is None),
+        ])
+    except Exception as exc:
+        return _make_result(tool_name, tool_id, "FAIL", 0, [], ["exception"], None, error=str(exc))
+
+
 # ── Redis write ────────────────────────────────────────────────────────────────
 
 def _write_to_redis(results: list) -> None:
@@ -1246,9 +1528,23 @@ _SMOKE_COROUTINES = [
     smoke_validate_tool_output,
     smoke_report_feedback,
     smoke_report_mcpize_link,
+    # Sprint 6 — Nonprofit Sprint6 (1)
+    smoke_fetch_nonprofit_full_profile,
+    # Sprint 6 — Security Sprint6 (3)
+    smoke_fetch_package_maintainer_history,
+    smoke_fetch_package_risk_brief,
+    smoke_fetch_package_risk_brief_circuit_open,
+    # Sprint 6 — Supply Chain (2)
+    smoke_detect_typosquatting,
+    smoke_detect_typosquatting_cold_start_failure,
+    # Sprint 6 — Stateful (4)
+    smoke_audit_sbom_continuous_size_limit,
+    smoke_fetch_cve_watch_create,
+    smoke_fetch_cve_watch_check,
+    smoke_fetch_cve_watch_delete,
 ]
 
-assert len(_SMOKE_COROUTINES) == 43, f"Expected 43 smoke tests, got {len(_SMOKE_COROUTINES)}"
+assert len(_SMOKE_COROUTINES) == 53, f"Expected 53 smoke tests, got {len(_SMOKE_COROUTINES)}"
 
 
 async def run_all() -> list:

@@ -478,6 +478,75 @@ async def canary_epss(client: httpx.AsyncClient) -> dict:
         return _result(source, tool_id, "FAIL", lat, "FIRST EPSS API fetch success", error=str(exc))
 
 
+async def canary_pypi_json(client: httpx.AsyncClient) -> dict:
+    """Sprint 6 — PyPI JSON API: fetch requests metadata, expect info.version."""
+    source, tool_id = "pypi_json", "T10"
+    t0 = time.monotonic()
+    try:
+        resp = await client.get(
+            "https://pypi.org/pypi/requests/json",
+            timeout=httpx.Timeout(15.0, connect=5.0),
+        )
+        lat = int((time.monotonic() - t0) * 1000)
+        resp.raise_for_status()
+        data = resp.json()
+        version = data.get("info", {}).get("version", "")
+        if version:
+            return _result(source, tool_id, "PASS", lat,
+                           f"PyPI JSON API: requests version={version}")
+        return _result(source, tool_id, "FAIL", lat, "PyPI JSON info.version present",
+                       error=f"Missing version; keys={list(data.get('info', {}).keys())[:6]}")
+    except Exception as exc:
+        lat = int((time.monotonic() - t0) * 1000)
+        return _result(source, tool_id, "FAIL", lat, "PyPI JSON API reachable", error=str(exc))
+
+
+async def canary_npm_registry(client: httpx.AsyncClient) -> dict:
+    """Sprint 6 — npm registry: fetch lodash metadata, expect dist-tags.latest."""
+    source, tool_id = "npm_registry", "T10"
+    t0 = time.monotonic()
+    try:
+        resp = await client.get(
+            "https://registry.npmjs.org/lodash",
+            timeout=httpx.Timeout(15.0, connect=5.0),
+        )
+        lat = int((time.monotonic() - t0) * 1000)
+        resp.raise_for_status()
+        data = resp.json()
+        latest = data.get("dist-tags", {}).get("latest", "")
+        if latest:
+            return _result(source, tool_id, "PASS", lat,
+                           f"npm registry: lodash latest={latest}")
+        return _result(source, tool_id, "FAIL", lat, "npm registry dist-tags.latest present",
+                       error=f"Missing latest; keys={list(data.keys())[:6]}")
+    except Exception as exc:
+        lat = int((time.monotonic() - t0) * 1000)
+        return _result(source, tool_id, "FAIL", lat, "npm registry reachable", error=str(exc))
+
+
+async def canary_propublica(client: httpx.AsyncClient) -> dict:
+    """Sprint 6 — ProPublica Nonprofit Explorer API: fetch MIT EIN, expect organization key."""
+    source, tool_id = "propublica_nonprofit", "T04"
+    t0 = time.monotonic()
+    try:
+        resp = await client.get(
+            "https://projects.propublica.org/nonprofits/api/v2/organizations/530196605.json",
+            timeout=httpx.Timeout(15.0, connect=5.0),
+        )
+        lat = int((time.monotonic() - t0) * 1000)
+        resp.raise_for_status()
+        data = resp.json()
+        if "organization" in data:
+            name = data["organization"].get("name", "")
+            return _result(source, tool_id, "PASS", lat,
+                           f"ProPublica API: organization={name!r}")
+        return _result(source, tool_id, "FAIL", lat, "ProPublica organization key present",
+                       error=f"Keys: {list(data.keys())}")
+    except Exception as exc:
+        lat = int((time.monotonic() - t0) * 1000)
+        return _result(source, tool_id, "FAIL", lat, "ProPublica API reachable", error=str(exc))
+
+
 async def canary_regulations_gov(client: httpx.AsyncClient) -> dict:
     """T19 — Regulations.gov: fetch 5 EPA documents, expect data array."""
     source, tool_id = "regulations_gov", "T19"
@@ -615,8 +684,8 @@ _CANARIES = [
     canary_osv,
     canary_nist_nvd,
     canary_deps_dev,
-    canary_cisa_kev,      # Sprint 4 — T10 CISA KEV
-    canary_epss,          # Sprint 4 — T10 FIRST EPSS
+    canary_cisa_kev,          # Sprint 4 — T10 CISA KEV
+    canary_epss,              # Sprint 4 — T10 FIRST EPSS
     canary_nppes_npi,
     canary_finra,
     canary_sam_gov,
@@ -626,6 +695,9 @@ _CANARIES = [
     canary_epo_ops,
     canary_usaspending,
     canary_regulations_gov,
+    canary_pypi_json,         # Sprint 6 — fetch_package_maintainer_history
+    canary_npm_registry,      # Sprint 6 — fetch_package_maintainer_history
+    canary_propublica,        # Sprint 6 — fetch_nonprofit_full_profile
 ]
 
 _HEADERS = {"User-Agent": "DataNexus MCP/1.0 (datanexusmcp.com)"}

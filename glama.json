@@ -148,6 +148,30 @@
       "description": "Use this to fetch recent Federal Register notices for an agency. Returns document type, title and effective date. Verified source: Federal Register API. Token-efficient. AI-Ready Markdown."
     },
     {
+      "name": "nonprofit_fetch_nonprofit_full_profile",
+      "description": "Complete nonprofit due diligence in one call. Revenue trends, executive pay, risk flags, and a health score from IRS 990 data. Uses ProPublica Nonprofit Explorer API with IRS e-File fallback. Returns financials, executive_compensation, risk_flags, health_score (0–100), programme_ratio, and fundraising_sustainability. No auth required. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "security_fetch_package_maintainer_history",
+      "description": "Use this to analyse ownership and release history for an npm or PyPI package and detect supply-chain risk. Returns maintainer_count, recent_changes, ownership_transfers, account_ages, anomaly_score (0.0–1.0), and maintainer_health (healthy | stale | abandoned | suspicious). Verified source: PyPI JSON API and npm registry. Data refreshed on each call, 1-hour cache. Rate limit: 60/minute. No auth required. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "security_fetch_cve_watch",
+      "description": "Persistent CVE watchlist. Create once, check anytime for new events since your last visit — patch releases, KEV listings, PoC publications, exploitation detected. Uses Redis for persistence with 90-day TTL. No auth required. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "security_audit_sbom_continuous",
+      "description": "Persistent SBOM watch. Register once, check anytime for new CVEs affecting your dependency snapshot. Silent permanent watch — CycloneDX and SPDX supported. 500 KB input limit. SHA-256 integrity. No auth required. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "security_detect_typosquatting",
+      "description": "Detect typosquatting attacks against a package name. Damerau-Levenshtein distance ≤ 2 against top-10,000 npm or PyPI packages. Returns similar_packages with anomaly scores and a SUSPICIOUS or CLEAN verdict. Cold-start fetch on first call (≤ 30s). No auth required. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "security_fetch_package_risk_brief",
+      "description": "Single SHIP/CAUTION/BLOCK verdict for any package. Combines CVEs, licence, maintainer health, and transitive count in one call. Verified source: OSV.dev, deps.dev, PyPI, and npm registry. Data refreshed on each call. Rate limit: 30/minute. No auth required. Token-efficient. AI-Ready Markdown."
+    },
+    {
       "name": "report_feedback",
       "description": "Use this to report a data quality issue with any DataNexus tool response. Provide tool_id, query_hash from the response, signal type and optional comment. Always returns recorded status. Token-efficient."
     },
