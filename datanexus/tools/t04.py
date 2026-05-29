@@ -115,7 +115,7 @@ UK_CHARITY_TTL = 86400   # 24h — UK GDPR maximum
 @with_timeout
 @verify_entitlement("T04")
 async def fetch_nonprofit_by_ein(ein: str) -> dict:
-    """Fetch IRS 990 filing data for any US nonprofit by EIN. Read-only. No side effects. Idempotent. US only. ein: 9-digit Employer ID with or without dash, e.g. 13-1837418 or 131837418. Required. Returns name, revenue, expenses, assets, NTEE code, and mission from the most recent 990 filing. Use this when you have the exact EIN. Use nonprofit_search_nonprofits_by_name instead when you only have a name. Verified source: IRS EO BMF + IRS TEOS. 7-day cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="nonprofit_fetch_nonprofit_by_ein", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    """Fetch IRS 990 filing data for any US nonprofit by EIN. Read-only. No side effects. Idempotent. US only. ein: 9-digit Employer ID with or without dash, e.g. 46-5734087 or 465734087. Required. Returns name, revenue, expenses, assets, NTEE code, and mission from the most recent 990 filing. Use this when you have the exact EIN. Use nonprofit_search_nonprofits_by_name instead when you only have a name. Verified source: IRS EO BMF + IRS TEOS. 7-day cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="nonprofit_fetch_nonprofit_by_ein", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
