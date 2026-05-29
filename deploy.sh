@@ -4,14 +4,14 @@ set -e
 echo "Deploying DataNexus MCP to Hetzner..."
 
 # Sync code to server
-rsync -avz --exclude='.git' \
+rsync -avz -e "ssh -F ~/.ssh/config" --exclude='.git' \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
   --exclude='.env' \
-  . root@178.104.251.70:/app/datanexus/
+  . datanexus:/app/datanexus/
 
 # Deploy on server
-ssh root@178.104.251.70 << 'ENDSSH'
+ssh datanexus << 'ENDSSH'
   cd /app/datanexus
   docker compose pull
   docker compose build --no-cache
