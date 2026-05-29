@@ -31,6 +31,7 @@ Rate limit: Regulations.gov 1,000 req/day free tier.
 import asyncio
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -123,10 +124,10 @@ def _fr_agency_slug(agency: str) -> str:
     return agency.strip().lower().replace(" ", "-").replace("_", "-")
 
 
-_INJECTION_PATTERNS = (
+# Simple substring patterns — checked case-insensitively via .lower() comparison.
+_INJECTION_PATTERNS_SIMPLE = (
     "ignore previous",
     "you are now",
-    "system:",
     "<script",
     "<iframe",
     "forget your instructions",
@@ -134,14 +135,33 @@ _INJECTION_PATTERNS = (
     "disregard",
 )
 
+# Role-label injection patterns — only flag when the label appears at line-start
+# followed by instruction-style language.  The former bare "system:" string match
+# was triggering false positives on legitimate EPA regulatory text such as
+# "monitoring system:", "water system:", and "reporting system:".
+_INJECTION_PATTERNS_RE = tuple(
+    re.compile(
+        r"(?:^|\n)\s*" + _role + r"\s*:\s*"
+        r"(?:ignore|you\s+are|new\s+role|disregard|forget|override|your\s+instructions)",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    for _role in ("system", "user", "assistant", "human")
+)
+
 
 def _validate_canary(markdown_output: str) -> None:
     """Raise ValueError if any injection pattern is found in markdown_output."""
     lower = markdown_output.lower()
-    for pattern in _INJECTION_PATTERNS:
+    for pattern in _INJECTION_PATTERNS_SIMPLE:
         if pattern.lower() in lower:
             raise ValueError(
                 f"Canary: injection pattern '{pattern}' detected in "
+                "markdown_output — response blocked."
+            )
+    for rx in _INJECTION_PATTERNS_RE:
+        if rx.search(markdown_output):
+            raise ValueError(
+                f"Canary: injection pattern '{rx.pattern[:60]}' detected in "
                 "markdown_output — response blocked."
             )
 

@@ -14,7 +14,31 @@ from datanexus.config import MAX_TITLE_LEN, MAX_SUMMARY_LEN, MAX_FULLTEXT_LEN
 _INJECTION_PATTERNS: list[tuple[str, str]] = [
     (r"ignore\s+previous", "imperative-ignore"),
     (r"you\s+are\s+now", "role-change"),
-    (r"system\s*:", "system-prompt"),
+    # Tightened: bare 'system:' false-positived on "monitoring system:",
+    # "water system:", "reporting system:" in EPA regulatory text (T19 bug).
+    # Now only flags when the role label appears at line-start followed by
+    # instruction-style language (ignore / you are / new role / disregard / etc.).
+    (
+        r"(?:^|\n)\s*system\s*:\s*"
+        r"(?:ignore|you\s+are|new\s+role|disregard|forget|override|your\s+instructions)",
+        "system-prompt",
+    ),
+    # user / assistant / human — same tightening applied proactively
+    (
+        r"(?:^|\n)\s*user\s*:\s*"
+        r"(?:ignore|you\s+are|new\s+role|disregard|forget|override|your\s+instructions)",
+        "user-prompt",
+    ),
+    (
+        r"(?:^|\n)\s*assistant\s*:\s*"
+        r"(?:ignore|you\s+are|new\s+role|disregard|forget|override|your\s+instructions)",
+        "assistant-prompt",
+    ),
+    (
+        r"(?:^|\n)\s*human\s*:\s*"
+        r"(?:ignore|you\s+are|new\s+role|disregard|forget|override|your\s+instructions)",
+        "human-prompt",
+    ),
     (r"<[a-zA-Z][^>]{0,200}>", "html-tag"),   # must start with letter — avoids semver false positives
     (r"disregard\s+all", "imperative-disregard"),
     (r"new\s+instructions", "new-instructions"),
@@ -43,6 +67,19 @@ def canary_check(text: str) -> None:
     for pattern, label in _COMPILED:
         if pattern.search(scrubbed):
             raise IntegrityError(f"Canary: injection pattern '{label}' detected")
+
+
+def is_injection(text: str) -> bool:
+    """Return True if text contains an injection pattern, False otherwise.
+
+    Convenience wrapper around canary_check for use in tests and conditional
+    code paths where raising is inconvenient.
+    """
+    try:
+        canary_check(text)
+        return False
+    except IntegrityError:
+        return True
 
 
 def compute_sha256(payload_json: str) -> str:
