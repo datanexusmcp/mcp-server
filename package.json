@@ -1,6 +1,6 @@
 {
   "name": "@datanexusmcp/mcp-server",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "DataNexus MCP — AI-Ready public data intelligence. 55 tools: CVE risk verdicts, SBOM licence policy, frontend security (manifest audit, CI scanner, typosquatting), licence compatibility, nonprofit 990 trends, SBOM monitoring, federal contracts, NPI lookups, patents, domain intelligence. Free tier — 100 calls/month anonymous, 500 with free API key.",
   "keywords": [
     "mcp",
