@@ -3,9 +3,9 @@
   "maintainers": [
     "datanexusmcp"
   ],
-  "tools_count": 46,
+  "tools_count": 56,
   "name": "DataNexus MCP",
-  "description": "CISA KEV \u00b7 CVE EPSS \u00b7 SBOM audit \u00b7 patent search \u00b7 nonprofit 990 data \u00b7 government contracts \u00b7 subdomain enumeration \u00b7 domain RDAP \u00b7 email security scoring. Public data intelligence for AI agents. Zero install, one URL: https://datanexusmcp.com/mcp",
+  "description": "56 tools. CISA KEV \u00b7 CVE EPSS \u00b7 SBOM licence policy \u00b7 frontend security \u00b7 CI pipeline scanner \u00b7 API key management \u00b7 patent search \u00b7 nonprofit 990 data \u00b7 government contracts \u00b7 domain intelligence. Free tier (100 calls/month anonymous, 500 with free API key). One URL: https://datanexusmcp.com/mcp",
   "url": "https://datanexusmcp.com/mcp",
   "transport": "streamable-http",
   "remote": true,
@@ -202,6 +202,42 @@
     {
       "name": "nonprofit_fetch_nonprofit_financial_trends",
       "description": "Multi-year financial trend analysis for any US nonprofit. Returns revenue CAGR, trend direction (GROWING/STABLE/DECLINING/VOLATILE/INSUFFICIENT_DATA), year-by-year revenue/expense/asset data, and health score history from IRS Form 990 filings via ProPublica. Default 5 years, max 10. Rate limit: 30/minute. No auth required."
+    },
+    {
+      "name": "apikeys_generate_api_key",
+      "description": "Generate a free DataNexus API key tied to your email. Registered users get 500 calls/month instead of 100. Returns a dnx_... key shown once — store it and pass as X-DataNexus-Key header. Rate limit: 3 keys per IP per 24 hours. No auth required."
+    },
+    {
+      "name": "apikeys_rotate_api_key",
+      "description": "Revoke your current DataNexus API key and issue a replacement in one atomic operation. Returns the new key once — store it immediately. Requires your current key."
+    },
+    {
+      "name": "apikeys_revoke_api_key",
+      "description": "Permanently revoke a DataNexus API key. The key stops working immediately and is removed from the Redis cache. This action cannot be undone."
+    },
+    {
+      "name": "security_audit_sbom_license_policy",
+      "description": "Audit a CycloneDX or SPDX SBOM against an SPDX licence policy. Returns PASS/WARN/BLOCK verdict with per-package details. Default policy blocks GPL-3.0/AGPL-3.0, warns LGPL-2.1/MPL-2.0. Custom policy supported. Unlisted licences default to WARN. 500 KB limit. Source: deps.dev. No auth required."
+    },
+    {
+      "name": "security_fetch_cve_watch_status",
+      "description": "Polling inbox for all active CVE watches. Returns only watches with new events since your last poll using a per-user cursor. First call returns events from the past 30 days. Pass watch_ids to check specific watches. No external API calls — instant Redis response. API key recommended for persistent cursor."
+    },
+    {
+      "name": "frontend_security_detect_typosquatting",
+      "description": "Typosquatting detection optimised for the top 500 frontend packages (React, Vite, Axios, Lodash, etc.). Fewer false positives than a full npm scan. For backend packages use security_detect_typosquatting. Uses Damerau-Levenshtein distance ≤ 2. Returns is_likely_typosquat, closest_match, distance, risk_level. No auth required."
+    },
+    {
+      "name": "frontend_security_audit_manifest",
+      "description": "Audit a frontend package.json for supply-chain risk. Returns SHIP/CAUTION/BLOCK verdict with critical/high CVE counts, licence risks, and abandoned packages. Accepts optional lockfile for pinned-version accuracy. Different from security_fetch_package_vulnerabilities — this takes your full package.json. Sources: OSV.dev, deps.dev, npm. No auth required."
+    },
+    {
+      "name": "frontend_security_audit_ci_pipeline",
+      "description": "Scan GitHub Actions, Vercel, or Netlify CI configs for exposed secrets, missing lockfile enforcement, unpinned action versions, and overly broad permissions. Paste your config — no filesystem access. IMPORTANT: ${{ secrets.FOO }} references are never flagged — only literal credential values. Returns risk_level (LOW/MEDIUM/HIGH/CRITICAL) and findings list. No auth required."
+    },
+    {
+      "name": "frontend_security_fetch_package_risk_brief",
+      "description": "SHIP/CAUTION/BLOCK risk brief for any npm package with frontend-specific context. Wraps security_fetch_package_risk_brief restricted to npm and adds weekly_downloads and is_ui_component (detects react-*, @mui/*, @radix-ui/*, vue-*, svelte-*, etc.). Use security_fetch_package_risk_brief for non-npm ecosystems. Sources: OSV.dev, deps.dev, npm registry. No auth required."
     }
   ]
 }

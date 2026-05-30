@@ -503,7 +503,10 @@ async def _handle_sbom_deregister(r, watch_id: str) -> dict:
     }
 
 
-# ── SBOM parsing ───────────────────────────────────────────────────────────────
+# ── SBOM parsing (delegated to _sbom_utils — Sprint 8B) ───────────────────────
+
+from datanexus.tools._sbom_utils import extract_purls as _extract_purls_new
+
 
 def _extract_purls(sbom_str: str) -> tuple[list[str], str]:
     """

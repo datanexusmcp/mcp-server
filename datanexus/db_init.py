@@ -34,6 +34,18 @@ CREATE TABLE IF NOT EXISTS usage (
     call_uuid   TEXT        UNIQUE NOT NULL,
     created_at  TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    key_hash     TEXT        PRIMARY KEY,
+    email        TEXT        NOT NULL,
+    tier         TEXT        NOT NULL DEFAULT 'free',
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    revoked_at   TIMESTAMPTZ,
+    revoked      BOOLEAN     NOT NULL DEFAULT FALSE
+);
+
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS api_key_hash TEXT;
 """
 
 

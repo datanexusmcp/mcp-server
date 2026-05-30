@@ -43,7 +43,7 @@ from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from datanexus.core.request_context import client_ip_var
+from datanexus.core.request_context import api_key_var, client_ip_var
 
 
 class _ClientIPMiddleware:
@@ -76,6 +76,108 @@ class _ClientIPMiddleware:
         else:
             await self.app(scope, receive, send)
 
+import hashlib as _hashlib
+
+
+class _ApiKeyMiddleware:
+    """
+    Pure-ASGI middleware — extracts X-DataNexus-Key header, validates it against
+    the api_keys table (cached in Redis for 5 min), and sets api_key_var.
+
+    Pure-ASGI (not BaseHTTPMiddleware) — same pattern as _ClientIPMiddleware —
+    so contextvars propagate correctly into asyncio.create_task() chains.
+
+    Fails open: if Redis or DB is unavailable, api_key_var is left as None
+    (anonymous tier) and a WARNING is logged.  Tool calls are never blocked.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            headers = {k.lower(): v for k, v in scope.get("headers", [])}
+            raw_key = headers.get(b"x-datanexus-key", b"").decode().strip()
+
+            token = None
+            if raw_key:
+                key_hash = _hashlib.sha256(raw_key.encode()).hexdigest()
+                tier = await self._lookup(key_hash)
+                if tier is not None:
+                    token = api_key_var.set(key_hash)
+                else:
+                    token = api_key_var.set(None)
+            else:
+                token = api_key_var.set(None)
+
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                if token is not None:
+                    api_key_var.reset(token)
+        else:
+            await self.app(scope, receive, send)
+
+    async def _lookup(self, key_hash: str):
+        """
+        Returns tier string if key is valid + not revoked, else None.
+        Checks Redis cache first (5-min TTL), falls back to Postgres.
+        """
+        import os
+        from datanexus.cache import get_redis
+
+        cache_key = f"dn:apikey:{key_hash}"
+        try:
+            r = await get_redis()
+            if r:
+                cached = await r.get(cache_key)
+                if cached is not None:
+                    return cached if cached != "revoked" else None
+        except Exception as exc:
+            logging.getLogger("datanexus.main").warning(
+                "_ApiKeyMiddleware: Redis lookup failed (fail-open): %s", exc
+            )
+            return None
+
+        db_url = os.environ.get("DATANEXUS_DB_URL", "").strip()
+        if not db_url or not db_url.startswith(("postgresql://", "postgres://")):
+            return None
+
+        try:
+            import asyncpg
+            conn = await asyncpg.connect(db_url)
+            try:
+                row = await conn.fetchrow(
+                    "SELECT tier, revoked FROM api_keys WHERE key_hash=$1", key_hash
+                )
+            finally:
+                await conn.close()
+
+            if row is None or row["revoked"]:
+                try:
+                    r = await get_redis()
+                    if r:
+                        await r.set(cache_key, "revoked", ex=300)
+                except Exception:
+                    pass
+                return None
+
+            tier = row["tier"]
+            try:
+                r = await get_redis()
+                if r:
+                    await r.set(cache_key, tier, ex=300)
+            except Exception:
+                pass
+            return tier
+
+        except Exception as exc:
+            logging.getLogger("datanexus.main").warning(
+                "_ApiKeyMiddleware: DB lookup failed (fail-open): %s", exc
+            )
+            return None
+
+
 from datanexus.db_init import init_db
 from datanexus.core.prewarm import prewarm_cache
 from datanexus.analytics import track_server_start, shutdown as ph_shutdown
@@ -100,6 +202,13 @@ from datanexus.tools.security_stateful import security_stateful
 from datanexus.tools.licence_sprint7    import licence_sprint7
 from datanexus.tools.cve_sprint7        import cve_sprint7
 from datanexus.tools.nonprofit_sprint7  import nonprofit_sprint7 as nonprofit_sprint7_server
+
+# ── Sprint 8A imports ─────────────────────────────────────────────────────────
+from datanexus.tools.api_key_sprint8a import api_key_server, _UsageMiddleware
+
+# ── Sprint 8B imports ─────────────────────────────────────────────────────────
+from datanexus.tools.t10_sprint8    import t10_sprint8
+from datanexus.tools.frontend_sprint8 import frontend_sprint8
 
 # ── Section 13 validation tool ───────────────────────────────────────────────
 from datanexus.tools.validation import validate_tool_output
@@ -240,6 +349,14 @@ main.mount(licence_sprint7,           namespace="security")
 main.mount(cve_sprint7,               namespace="security")
 main.mount(nonprofit_sprint7_server,  namespace="nonprofit")
 
+# ── Mount Sprint 8A sub-server + register UsageMiddleware ────────────────────
+main.mount(api_key_server, namespace="apikeys")
+main.add_middleware(_UsageMiddleware())
+
+# ── Mount Sprint 8B sub-servers ───────────────────────────────────────────────
+main.mount(t10_sprint8,       namespace="security")
+main.mount(frontend_sprint8,  namespace="frontend_security")
+
 # ── Register shared infrastructure tools (once — not per-tool duplicates) ─────
 main.tool()(report_feedback)
 main.tool()(report_mcpize_link)
@@ -257,7 +374,7 @@ async def health(request: Request) -> JSONResponse:
     return JSONResponse({
         "status": "ok",
         "service": "datanexus-mcp",
-        "tools": 46,
+        "tools": 56,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -277,14 +394,14 @@ async def mcp_manifest(request: Request) -> JSONResponse:
 if __name__ == "__main__":
     logger.info(
         "DataNexus MCP starting — transport=streamable-http — "
-        "46 tools registered (nonprofit×6, security×15, compliance×4, domain×7, "
-        "legal×4, govcon×3, regulatory×3, Shared×3, meta×1)"
+        "56 tools registered (nonprofit×6, security×18, frontend_security×4, compliance×4, "
+        "domain×7, legal×4, govcon×3, regulatory×3, apikeys×3, Shared×3, meta×1)"
     )
     main.run(
         transport="streamable-http",
         host="0.0.0.0",   # nosec B104
         port=8000,
-        middleware=[Middleware(_ClientIPMiddleware)],
+        middleware=[Middleware(_ClientIPMiddleware), Middleware(_ApiKeyMiddleware)],
         stateless_http=True,
         json_response=True,
     )

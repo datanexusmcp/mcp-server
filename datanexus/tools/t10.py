@@ -1487,12 +1487,48 @@ async def _fetch_dep_graph_live(
             "relation": node.get("relation", "INDIRECT"),
         })
 
+    # Sprint 8B: cross-check transitive deps against OSV.dev — only include those
+    # with ≥1 open CVE. Clean deps are omitted from list but counted in total_deps.
+    transitive_nodes = [n for n in nodes if n.get("relation") != "DIRECT"][:50]
+    cvs_filtered: list[dict] = []
+    if transitive_nodes:
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(5.0, connect=2.0),
+                headers=_HTTP_HEADERS,
+                follow_redirects=True,
+            ) as osv_client:
+                queries = [
+                    {
+                        "package": {"name": n["name"], "ecosystem": n["system"] or system},
+                        "version": n["version"],
+                    }
+                    for n in transitive_nodes
+                    if n.get("name")
+                ]
+                if queries:
+                    osv_resp = await osv_client.post(
+                        _OSV_BATCH_URL, json={"queries": queries}, timeout=5.0
+                    )
+                    if osv_resp.status_code == 200:
+                        for node, result in zip(transitive_nodes, osv_resp.json().get("results", [])):
+                            if result and result.get("vulns"):
+                                cvs_filtered.append({
+                                    "name":      node["name"],
+                                    "version":   node["version"],
+                                    "system":    node["system"],
+                                    "cve_count": len(result["vulns"]),
+                                })
+        except Exception as _osv_exc:
+            log.debug("fetch_dependency_graph: OSV cross-check failed (non-fatal): %s", _osv_exc)
+
     return {
         "package":    package,
         "version":    version,
         "ecosystem":  system,
         "nodes":      nodes[:200],
         "total_deps": len(nodes),
+        "cvs_filtered_transitive_deps": cvs_filtered,
         "source":     "deps.dev",
     }
 

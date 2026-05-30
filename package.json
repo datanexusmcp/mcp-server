@@ -1,7 +1,7 @@
 {
   "name": "@datanexusmcp/mcp-server",
-  "version": "2.3.0",
-  "description": "DataNexus MCP — AI-Ready public data intelligence. 46 tools: CVE risk verdicts, licence compatibility audits, nonprofit 990 trends, SBOM monitoring, typosquatting detection, federal contracts, NPI lookups, patents, and domain intelligence. No API key required.",
+  "version": "2.4.0",
+  "description": "DataNexus MCP — AI-Ready public data intelligence. 56 tools: CVE risk verdicts, SBOM licence policy, frontend security (manifest audit, CI scanner, typosquatting), licence compatibility, nonprofit 990 trends, SBOM monitoring, federal contracts, NPI lookups, patents, domain intelligence. Free tier — 100 calls/month anonymous, 500 with free API key.",
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -50,7 +50,16 @@
     "procurement",
     "usaspending",
     "federal-register",
-    "regulations"
+    "regulations",
+    "frontend-security",
+    "ci-pipeline",
+    "github-actions",
+    "secret-scanning",
+    "manifest-audit",
+    "sbom-licence",
+    "licence-policy",
+    "api-key",
+    "cve-watch"
   ],
   "homepage": "https://datanexusmcp.com",
   "repository": {

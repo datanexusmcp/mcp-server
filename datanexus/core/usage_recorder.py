@@ -116,6 +116,8 @@ async def record_usage(
     success: bool,
     error_msg: Optional[str] = None,
     latency_ms: Optional[int] = None,
+    *,
+    api_key_hash: Optional[str] = None,
 ) -> None:
     """
     Persist one tool call to the usage table.  Always returns — never raises.
@@ -149,8 +151,8 @@ async def record_usage(
                 INSERT INTO usage
                   (session_id, tool_id, call_uuid, created_at,
                    client_ip, tool_input, success, error_msg,
-                   latency_ms, is_smoke)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                   latency_ms, is_smoke, api_key_hash)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 """,
                 session_id,
                 tool_id,
@@ -162,6 +164,7 @@ async def record_usage(
                 error_msg,
                 latency_ms,
                 is_smoke,
+                api_key_hash,
             )
 
         # Activation milestone check — fire-and-forget, never raises

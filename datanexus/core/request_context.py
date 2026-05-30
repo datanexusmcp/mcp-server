@@ -18,3 +18,7 @@ from contextvars import ContextVar
 # Real client IP extracted from X-Real-IP header set by Caddy.
 # Falls back to 'unknown' when called outside an HTTP request lifecycle.
 client_ip_var: ContextVar[str] = ContextVar("client_ip", default="unknown")
+
+# SHA-256 hash of the validated X-DataNexus-Key header.
+# Set by _ApiKeyMiddleware in main.py; None when no key is present or key is invalid.
+api_key_var: ContextVar[str | None] = ContextVar("api_key", default=None)

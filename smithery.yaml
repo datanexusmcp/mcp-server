@@ -4,18 +4,19 @@
 name: datanexus-mcp
 displayName: DataNexus MCP
 description: >
-  AI-Ready public data intelligence via MCP. 30 tools in 7 focused sub-servers:
+  56-tool AI-Ready public data intelligence via MCP.
+  8 categories: security (CVE, SBOM, licence policy, dependency graph, CVE watch inbox),
+  frontend_security (typosquatting top-500, manifest audit, CI pipeline scanner, npm risk brief),
   nonprofit (IRS EO BMF + IRS TEOS + UK Charity Commission),
-  security (Google OSV.dev + NIST NVD + deps.dev),
   compliance (NPPES NPI + FINRA BrokerCheck + SAM.gov),
   domain (IANA RDAP + crt.sh + Cloudflare DoH),
   legal/patents (EPO OPS + USPTO + WIPO),
-  GovCon (USASpending.gov + SAM.gov + EU TED),
-  and regulatory (Regulations.gov + Federal Register).
-  Use search_datanexus_tools first to find the right tool.
-  Token-efficient AI-Ready Markdown. No API key required for most tools.
+  govcon (USASpending.gov + SAM.gov),
+  regulatory (Regulations.gov + Federal Register).
+  Free tier: 100 calls/month anonymous, 500 with free API key.
+  Use search_datanexus_tools first. Token-efficient AI-Ready Markdown.
 
-version: 2.1.0
+version: 2.4.0
 license: MIT
 homepage: https://datanexusmcp.com
 repository: https://github.com/datanexusmcp/mcp-server
@@ -35,6 +36,12 @@ tags:
   - devsecops
   - kev
   - sbom
+  - frontend-security
+  - ci-pipeline
+  - supply-chain
+  - typosquatting
+  - licence-policy
+  - api-key
   - compliance
   - legal
   - patents
@@ -114,6 +121,15 @@ environmentVariables:
       Free at register-of-charities.charitycommission.gov.uk/register/api-request.
       Tools degrade gracefully if absent.
     required: false
+
+  PAYMENT_ENABLED:
+    description: >
+      Controls whether the free-tier monthly call limit is enforced as a hard gate.
+      false (default): serve all requests and add usage hints to responses.
+      true: return HTTP 429 when anonymous (100/month) or registered (500/month) limit is reached.
+      Flip this in Railway env vars when payment processing is enabled — no redeploy needed.
+    required: false
+    default: "false"
 
 tools:
   # ── Shared ──────────────────────────────────────────────────────────────────
@@ -277,3 +293,63 @@ tools:
       Validate any DataNexus tool response for data quality anomalies.
       Two-layer validation: deterministic rules plus Haiku AI review.
       Auto-files feedback on confirmed issues.
+
+  # ── Sprint 8A — API Key Management ─────────────────────────────────────────
+  - name: apikeys_generate_api_key
+    description: >
+      Generate a free DataNexus API key (dnx_...) tied to your email.
+      Registered users get 500 calls/month instead of 100.
+      Pass the key as X-DataNexus-Key header on future requests.
+      Rate limit: 3 keys per IP per 24 hours. No auth required.
+
+  - name: apikeys_rotate_api_key
+    description: >
+      Revoke current key, issue a new one atomically.
+      Returns new key once — store immediately.
+
+  - name: apikeys_revoke_api_key
+    description: >
+      Permanently revoke a DataNexus API key and purge from Redis cache.
+
+  # ── Sprint 8B — Backend Security Depth ──────────────────────────────────────
+  - name: security_audit_sbom_license_policy
+    description: >
+      Audit a CycloneDX or SPDX SBOM against a licence policy.
+      Returns PASS/WARN/BLOCK per package. Default: block GPL-3.0/AGPL-3.0.
+      Custom policy via policy dict (exact SPDX IDs, no globs).
+      Unlisted licences default to WARN. 500 KB limit.
+      Source: deps.dev (Google).
+
+  - name: security_fetch_cve_watch_status
+    description: >
+      Polling inbox for active CVE watches. Returns only watches with new events
+      since last poll using a per-user cursor (per API key or anonymous).
+      First call: events from last 30 days. Subsequent calls: new events only.
+      Instant — reads existing Redis watch data, no external API calls.
+
+  # ── Sprint 8B — Frontend Security (T20) ─────────────────────────────────────
+  - name: frontend_security_detect_typosquatting
+    description: >
+      Typosquatting detection for top-500 frontend packages (React, Vite, Axios, etc.).
+      Fewer false positives than full-npm scan — frontend-scoped corpus.
+      Uses Damerau-Levenshtein ≤ 2. Returns risk_level LOW/MEDIUM/HIGH.
+
+  - name: frontend_security_audit_manifest
+    description: >
+      Audit package.json for supply-chain risk. SHIP/CAUTION/BLOCK verdict.
+      Checks CVEs in direct deps, licence compatibility, abandoned packages (>18mo).
+      Optional lockfile for pinned-version accuracy. Sources: OSV.dev, deps.dev, npm.
+
+  - name: frontend_security_audit_ci_pipeline
+    description: >
+      Scan GitHub Actions, Vercel, or Netlify CI configs for security issues.
+      Checks: exposed literal secrets (NOT ${{ secrets.X }}), unpinned actions,
+      missing npm ci / --frozen-lockfile, overly broad permissions: write-all.
+      Paste config content — no filesystem access. Returns risk_level + findings.
+
+  - name: frontend_security_fetch_package_risk_brief
+    description: >
+      SHIP/CAUTION/BLOCK risk brief for npm packages with frontend signals.
+      Adds weekly_downloads (npm API) and is_ui_component (react-*, @mui/*, @radix-ui/*, etc.)
+      on top of the standard security_fetch_package_risk_brief verdict.
+      Use security_fetch_package_risk_brief for non-npm ecosystems.
