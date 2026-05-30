@@ -77,7 +77,7 @@ _UI_PREFIXES = (
 @frontend_sprint8.tool()
 @with_timeout
 @verify_entitlement("T20")
-async def frontend_security_detect_typosquatting(
+async def detect_typosquatting(
     package_name: str,
     ecosystem: Literal["npm", "pypi"] = "npm",
 ) -> dict:
@@ -178,7 +178,7 @@ async def frontend_security_detect_typosquatting(
 @frontend_sprint8.tool()
 @with_timeout
 @verify_entitlement("T20")
-async def frontend_security_audit_manifest(
+async def audit_manifest(
     manifest: str,
     lockfile: Optional[str] = None,
 ) -> dict:
@@ -372,7 +372,7 @@ _SAFE_REF_RE = re.compile(r'\$\{\{.*?secrets\..*?\}\}|\$\{\{.*?env\..*?\}\}')
 @frontend_sprint8.tool()
 @with_timeout
 @verify_entitlement("T20")
-async def frontend_security_audit_ci_pipeline(
+async def audit_ci_pipeline(
     config: str,
     config_type: Literal["github_actions", "vercel", "netlify"] = "github_actions",
 ) -> dict:
@@ -437,7 +437,7 @@ async def frontend_security_audit_ci_pipeline(
 @frontend_sprint8.tool()
 @with_timeout
 @verify_entitlement("T20")
-async def frontend_security_fetch_package_risk_brief(
+async def fetch_package_risk_brief(
     package_name: str,
     version: Optional[str] = None,
 ) -> dict:

@@ -4,7 +4,7 @@
 name: datanexus-mcp
 displayName: DataNexus MCP
 description: >
-  56-tool AI-Ready public data intelligence via MCP.
+  55-tool AI-Ready public data intelligence via MCP.
   8 categories: security (CVE, SBOM, licence policy, dependency graph, CVE watch inbox),
   frontend_security (typosquatting top-500, manifest audit, CI pipeline scanner, npm risk brief),
   nonprofit (IRS EO BMF + IRS TEOS + UK Charity Commission),

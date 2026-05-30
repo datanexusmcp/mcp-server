@@ -374,7 +374,7 @@ async def health(request: Request) -> JSONResponse:
     return JSONResponse({
         "status": "ok",
         "service": "datanexus-mcp",
-        "tools": 56,
+        "tools": 55,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -394,7 +394,7 @@ async def mcp_manifest(request: Request) -> JSONResponse:
 if __name__ == "__main__":
     logger.info(
         "DataNexus MCP starting — transport=streamable-http — "
-        "56 tools registered (nonprofit×6, security×18, frontend_security×4, compliance×4, "
+        "55 tools registered (nonprofit×6, security×17, frontend_security×4, compliance×4, "
         "domain×7, legal×4, govcon×3, regulatory×3, apikeys×3, Shared×3, meta×1)"
     )
     main.run(

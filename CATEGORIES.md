@@ -36,4 +36,4 @@ Glama listing `tags`/`category` fields, and `description` field prefixes.
 | regulatory | 3 |
 | apikeys | 3 |
 | shared/meta | 4 |
-| **Total** | **56** |
+| **Total** | **55** |

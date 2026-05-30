@@ -3,9 +3,9 @@
   "maintainers": [
     "datanexusmcp"
   ],
-  "tools_count": 56,
+  "tools_count": 55,
   "name": "DataNexus MCP",
-  "description": "56 tools. CISA KEV \u00b7 CVE EPSS \u00b7 SBOM licence policy \u00b7 frontend security \u00b7 CI pipeline scanner \u00b7 API key management \u00b7 patent search \u00b7 nonprofit 990 data \u00b7 government contracts \u00b7 domain intelligence. Free tier (100 calls/month anonymous, 500 with free API key). One URL: https://datanexusmcp.com/mcp",
+  "description": "55 tools. CISA KEV \u00b7 CVE EPSS \u00b7 SBOM licence policy \u00b7 frontend security \u00b7 CI pipeline scanner \u00b7 API key management \u00b7 patent search \u00b7 nonprofit 990 data \u00b7 government contracts \u00b7 domain intelligence. Free tier (100 calls/month anonymous, 500 with free API key). One URL: https://datanexusmcp.com/mcp",
   "url": "https://datanexusmcp.com/mcp",
   "transport": "streamable-http",
   "remote": true,

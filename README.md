@@ -5,7 +5,7 @@
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Smithery](https://smithery.ai/badge/@datanexusmcp/mcp-server)](https://smithery.ai/servers/datanexusmcp/mcp-server)
 
-**56 tools. One URL. Free tier — no credit card.**
+**55 tools. One URL. Free tier — no credit card.**
 
 Verified public data — CVE/SBOM security audits, licence compliance, frontend security scanning, nonprofit 990 filings, federal contracts, NPI lookups, patents, and domain intelligence — delivered as AI-Ready Markdown inside any MCP client.
 
@@ -121,7 +121,7 @@ Copy any of these into Claude after connecting DataNexus:
 
 ---
 
-## Tools (56 total)
+## Tools (55 total)
 
 ### API Key Management
 

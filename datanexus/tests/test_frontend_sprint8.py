@@ -27,7 +27,7 @@ def run(coro):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_detect_typosquatting_known_package_not_typosquat():
-    from datanexus.tools.frontend_sprint8 import frontend_security_detect_typosquatting
+    from datanexus.tools.frontend_sprint8 import detect_typosquatting as frontend_security_detect_typosquatting
 
     async def _run():
         with patch("datanexus.tools.frontend_sprint8._get_frontend_corpus",
@@ -40,7 +40,7 @@ def test_detect_typosquatting_known_package_not_typosquat():
 
 
 def test_detect_typosquatting_close_match_flagged():
-    from datanexus.tools.frontend_sprint8 import frontend_security_detect_typosquatting
+    from datanexus.tools.frontend_sprint8 import detect_typosquatting as frontend_security_detect_typosquatting
 
     async def _run():
         with patch("datanexus.tools.frontend_sprint8._get_frontend_corpus",
@@ -54,7 +54,7 @@ def test_detect_typosquatting_close_match_flagged():
 
 
 def test_detect_typosquatting_distant_package_not_flagged():
-    from datanexus.tools.frontend_sprint8 import frontend_security_detect_typosquatting
+    from datanexus.tools.frontend_sprint8 import detect_typosquatting as frontend_security_detect_typosquatting
 
     async def _run():
         with patch("datanexus.tools.frontend_sprint8._get_frontend_corpus",
@@ -67,7 +67,7 @@ def test_detect_typosquatting_distant_package_not_flagged():
 
 
 def test_detect_typosquatting_corpus_unavailable_returns_error():
-    from datanexus.tools.frontend_sprint8 import frontend_security_detect_typosquatting
+    from datanexus.tools.frontend_sprint8 import detect_typosquatting as frontend_security_detect_typosquatting
 
     async def _run():
         with patch("datanexus.tools.frontend_sprint8._get_frontend_corpus", return_value=[]):
@@ -82,7 +82,7 @@ def test_detect_typosquatting_corpus_unavailable_returns_error():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_audit_manifest_ship_clean_package():
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_manifest
+    from datanexus.tools.frontend_sprint8 import audit_manifest as frontend_security_audit_manifest
 
     manifest = json.dumps({"dependencies": {"react": "^18.0.0"}})
 
@@ -100,7 +100,7 @@ def test_audit_manifest_ship_clean_package():
 
 
 def test_audit_manifest_block_critical_cve():
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_manifest
+    from datanexus.tools.frontend_sprint8 import audit_manifest as frontend_security_audit_manifest
 
     manifest = json.dumps({"dependencies": {"vulnerable-pkg": "^1.0.0"}})
 
@@ -117,7 +117,7 @@ def test_audit_manifest_block_critical_cve():
 
 
 def test_audit_manifest_caution_high_cves():
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_manifest
+    from datanexus.tools.frontend_sprint8 import audit_manifest as frontend_security_audit_manifest
 
     manifest = json.dumps({"dependencies": {"risky-pkg": "^2.0.0"}})
 
@@ -134,7 +134,7 @@ def test_audit_manifest_caution_high_cves():
 
 
 def test_audit_manifest_empty_deps_ship():
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_manifest
+    from datanexus.tools.frontend_sprint8 import audit_manifest as frontend_security_audit_manifest
 
     manifest = json.dumps({"name": "my-app", "version": "1.0.0"})
 
@@ -147,7 +147,7 @@ def test_audit_manifest_empty_deps_ship():
 
 
 def test_audit_manifest_malformed_json():
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_manifest
+    from datanexus.tools.frontend_sprint8 import audit_manifest as frontend_security_audit_manifest
 
     async def _run():
         return await frontend_security_audit_manifest(manifest="not-json{")
@@ -162,7 +162,7 @@ def test_audit_manifest_malformed_json():
 
 def test_audit_ci_safe_secret_ref_not_flagged():
     """${{ secrets.FOO }} must NOT be flagged as an exposed secret."""
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_ci_pipeline
+    from datanexus.tools.frontend_sprint8 import audit_ci_pipeline as frontend_security_audit_ci_pipeline
 
     config = """
 name: CI
@@ -188,7 +188,7 @@ jobs:
 
 def test_audit_ci_literal_aws_key_flagged():
     """Literal AKIA... key must be flagged as CRITICAL."""
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_ci_pipeline
+    from datanexus.tools.frontend_sprint8 import audit_ci_pipeline as frontend_security_audit_ci_pipeline
 
     config = """
 name: CI
@@ -207,7 +207,7 @@ env:
 
 
 def test_audit_ci_unpinned_action_flagged():
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_ci_pipeline
+    from datanexus.tools.frontend_sprint8 import audit_ci_pipeline as frontend_security_audit_ci_pipeline
 
     config = """
 jobs:
@@ -227,7 +227,7 @@ jobs:
 
 
 def test_audit_ci_pinned_sha_not_flagged():
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_ci_pipeline
+    from datanexus.tools.frontend_sprint8 import audit_ci_pipeline as frontend_security_audit_ci_pipeline
 
     sha = "a" * 40  # valid 40-char hex SHA
     config = f"""
@@ -247,7 +247,7 @@ jobs:
 
 
 def test_audit_ci_missing_lockfile_enforcement():
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_ci_pipeline
+    from datanexus.tools.frontend_sprint8 import audit_ci_pipeline as frontend_security_audit_ci_pipeline
 
     config = """
 jobs:
@@ -267,7 +267,7 @@ jobs:
 
 
 def test_audit_ci_overly_broad_permissions():
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_ci_pipeline
+    from datanexus.tools.frontend_sprint8 import audit_ci_pipeline as frontend_security_audit_ci_pipeline
 
     config = """
 permissions: write-all
@@ -288,7 +288,7 @@ jobs:
 
 def test_audit_ci_vercel_secrets_only():
     """Vercel/Netlify config type: only secrets checked in Sprint 8."""
-    from datanexus.tools.frontend_sprint8 import frontend_security_audit_ci_pipeline
+    from datanexus.tools.frontend_sprint8 import audit_ci_pipeline as frontend_security_audit_ci_pipeline
 
     config = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"
 
@@ -308,7 +308,7 @@ def test_audit_ci_vercel_secrets_only():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_fetch_package_risk_brief_ui_component_detection():
-    from datanexus.tools.frontend_sprint8 import frontend_security_fetch_package_risk_brief
+    from datanexus.tools.frontend_sprint8 import fetch_package_risk_brief as frontend_security_fetch_package_risk_brief
 
     async def _run():
         with patch("datanexus.tools.frontend_sprint8._fetch_vulns",
@@ -331,7 +331,7 @@ def test_fetch_package_risk_brief_ui_component_detection():
 
 
 def test_fetch_package_risk_brief_non_ui_component():
-    from datanexus.tools.frontend_sprint8 import frontend_security_fetch_package_risk_brief
+    from datanexus.tools.frontend_sprint8 import fetch_package_risk_brief as frontend_security_fetch_package_risk_brief
 
     async def _run():
         with patch("datanexus.tools.frontend_sprint8._fetch_vulns",
