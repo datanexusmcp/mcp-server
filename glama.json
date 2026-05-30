@@ -3,9 +3,9 @@
   "maintainers": [
     "datanexusmcp"
   ],
-  "tools_count": 35,
+  "tools_count": 46,
   "name": "DataNexus MCP",
-  "description": "CISA KEV · CVE EPSS · SBOM audit · patent search · nonprofit 990 data · government contracts · subdomain enumeration · domain RDAP · email security scoring. Public data intelligence for AI agents. Zero install, one URL: https://datanexusmcp.com/mcp",
+  "description": "CISA KEV \u00b7 CVE EPSS \u00b7 SBOM audit \u00b7 patent search \u00b7 nonprofit 990 data \u00b7 government contracts \u00b7 subdomain enumeration \u00b7 domain RDAP \u00b7 email security scoring. Public data intelligence for AI agents. Zero install, one URL: https://datanexusmcp.com/mcp",
   "url": "https://datanexusmcp.com/mcp",
   "transport": "streamable-http",
   "remote": true,
@@ -61,7 +61,7 @@
     },
     {
       "name": "security_fetch_cve_epss",
-      "description": "EPSS (Exploit Prediction Scoring System) predicts the probability (0.0–1.0) a CVE will be exploited in the wild within the next 30 days. Returns epss score and percentile rank. Score thresholds: >0.7 = high risk (patch immediately), 0.3–0.7 = medium, <0.3 = low. Example: CVE-2021-44228 (Log4Shell) → 0.975. Use alongside security_fetch_cve_detail to prioritize patching. Verified source: FIRST.org EPSS API. 6-hour cache. Token-efficient. AI-Ready Markdown."
+      "description": "EPSS (Exploit Prediction Scoring System) predicts the probability (0.0\u20131.0) a CVE will be exploited in the wild within the next 30 days. Returns epss score and percentile rank. Score thresholds: >0.7 = high risk (patch immediately), 0.3\u20130.7 = medium, <0.3 = low. Example: CVE-2021-44228 (Log4Shell) \u2192 0.975. Use alongside security_fetch_cve_detail to prioritize patching. Verified source: FIRST.org EPSS API. 6-hour cache. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "compliance_fetch_npi_provider",
@@ -101,7 +101,7 @@
     },
     {
       "name": "domain_check_email_security",
-      "description": "Checks whether a domain has properly configured email authentication (SPF, DMARC, DKIM) to prevent spoofing and phishing. SPF: sender IP allowlist; DMARC: policy for failed auth (none/quarantine/reject); DKIM: cryptographic signature validation. Each scored 0–10; overall grade A–F. Example: google.com → {overall_grade, spf_score, dmarc_score, dkim_score}; grade reflects live DNS at query time. Verified source: Cloudflare DoH (live DNS, no cache). Token-efficient. AI-Ready Markdown."
+      "description": "Checks whether a domain has properly configured email authentication (SPF, DMARC, DKIM) to prevent spoofing and phishing. SPF: sender IP allowlist; DMARC: policy for failed auth (none/quarantine/reject); DKIM: cryptographic signature validation. Each scored 0\u201310; overall grade A\u2013F. Example: google.com \u2192 {overall_grade, spf_score, dmarc_score, dkim_score}; grade reflects live DNS at query time. Verified source: Cloudflare DoH (live DNS, no cache). Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "domain_fetch_reverse_ip",
@@ -149,23 +149,23 @@
     },
     {
       "name": "nonprofit_fetch_nonprofit_full_profile",
-      "description": "Complete nonprofit due diligence in one call. Revenue trends, executive pay, risk flags, and a health score from IRS 990 data. Uses ProPublica Nonprofit Explorer API with IRS e-File fallback. Returns financials, executive_compensation, risk_flags, health_score (0–100), programme_ratio, and fundraising_sustainability. No auth required. Token-efficient. AI-Ready Markdown."
+      "description": "Complete nonprofit due diligence in one call. Revenue trends, executive pay, risk flags, and a health score from IRS 990 data. Uses ProPublica Nonprofit Explorer API with IRS e-File fallback. Returns financials, executive_compensation, risk_flags, health_score (0\u2013100), programme_ratio, and fundraising_sustainability. No auth required. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_fetch_package_maintainer_history",
-      "description": "Use this to analyse ownership and release history for an npm or PyPI package and detect supply-chain risk. Returns maintainer_count, recent_changes, ownership_transfers, account_ages, anomaly_score (0.0–1.0), and maintainer_health (healthy | stale | abandoned | suspicious). Verified source: PyPI JSON API and npm registry. Data refreshed on each call, 1-hour cache. Rate limit: 60/minute. No auth required. Token-efficient. AI-Ready Markdown."
+      "description": "Use this to analyse ownership and release history for an npm or PyPI package and detect supply-chain risk. Returns maintainer_count, recent_changes, ownership_transfers, account_ages, anomaly_score (0.0\u20131.0), and maintainer_health (healthy | stale | abandoned | suspicious). Verified source: PyPI JSON API and npm registry. Data refreshed on each call, 1-hour cache. Rate limit: 60/minute. No auth required. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_fetch_cve_watch",
-      "description": "Persistent CVE watchlist. Create once, check anytime for new events since your last visit — patch releases, KEV listings, PoC publications, exploitation detected. Uses Redis for persistence with 90-day TTL. No auth required. Token-efficient. AI-Ready Markdown."
+      "description": "Persistent CVE watchlist. Create once, check anytime for new events since your last visit \u2014 patch releases, KEV listings, PoC publications, exploitation detected. Uses Redis for persistence with 90-day TTL. No auth required. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_audit_sbom_continuous",
-      "description": "Persistent SBOM watch. Register once, check anytime for new CVEs affecting your dependency snapshot. Silent permanent watch — CycloneDX and SPDX supported. 500 KB input limit. SHA-256 integrity. No auth required. Token-efficient. AI-Ready Markdown."
+      "description": "Persistent SBOM watch. Register once, check anytime for new CVEs affecting your dependency snapshot. Silent permanent watch \u2014 CycloneDX and SPDX supported. 500 KB input limit. SHA-256 integrity. No auth required. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_detect_typosquatting",
-      "description": "Detect typosquatting attacks against a package name. Damerau-Levenshtein distance ≤ 2 against top-10,000 npm or PyPI packages. Returns similar_packages with anomaly scores and a SUSPICIOUS or CLEAN verdict. Cold-start fetch on first call (≤ 30s). No auth required. Token-efficient. AI-Ready Markdown."
+      "description": "Detect typosquatting attacks against a package name. Damerau-Levenshtein distance \u2264 2 against top-10,000 npm or PyPI packages. Returns similar_packages with anomaly scores and a SUSPICIOUS or CLEAN verdict. Cold-start fetch on first call (\u2264 30s). No auth required. Token-efficient. AI-Ready Markdown."
     },
     {
       "name": "security_fetch_package_risk_brief",
@@ -177,11 +177,31 @@
     },
     {
       "name": "report_mcpize_link",
-      "description": "Returns the MCPize subscription status and payment tier for the current DataNexus API key. Call when the user asks about their subscription, plan tier, usage limits, or billing status. Returns: status (\"free\" | \"subscription_required\" | \"not_configured\"), message, tool_id, and upgrade_url (only when subscription_required). Always returns a structured response — never raises an exception. Token-efficient."
+      "description": "Returns the MCPize subscription status and payment tier for the current DataNexus API key. Call when the user asks about their subscription, plan tier, usage limits, or billing status. Returns: status (\"free\" | \"subscription_required\" | \"not_configured\"), message, tool_id, and upgrade_url (only when subscription_required). Always returns a structured response \u2014 never raises an exception. Token-efficient."
     },
     {
       "name": "validate_tool_output",
       "description": "Use this to validate any DataNexus tool response for data quality anomalies. Two-layer validation: deterministic rules plus Haiku AI review. Auto-files feedback on confirmed issues. Never blocks. Verified source: DataNexus internal validator. Token-efficient. AI-Ready Markdown."
+    },
+    {
+      "name": "security_fetch_licence_analysis",
+      "description": "Understand any software licence in plain English. Returns obligations, permissions, limitations, and risk level (PERMISSIVE/COPYLEFT/STRONG_COPYLEFT/INCOMPATIBLE) for any SPDX licence ID. Static bundle covers top-50 licences with no network call. Falls back to spdx.org API for rare identifiers. All risk levels assume proprietary/commercial use. Rate limit: 60/minute. No auth required."
+    },
+    {
+      "name": "security_audit_licence_compatibility",
+      "description": "Audit licence compatibility across your entire dependency list. Input package names (with ecosystem) or SPDX IDs; get a COMPATIBLE/CONFLICT verdict with specific conflicting pairs and recommended remediation action. Package path resolves licences from deps.dev with max 10 concurrent calls. Max 50 items per call. Rate limit: 60/minute. No auth required."
+    },
+    {
+      "name": "security_fetch_cve_risk_summary",
+      "description": "Instant CVE risk verdict combining CVSS severity, CISA KEV exploitation status, and EPSS probability in one parallel call. Returns CRITICAL_EXPLOIT, HIGH_RISK, MODERATE, LOW, or UNKNOWN verdict. UNKNOWN means all upstream sources unreachable \u2014 not that risk is low. Includes patch availability from vendor advisory allowlist. Rate limit: 60/minute. No auth required."
+    },
+    {
+      "name": "nonprofit_search_nonprofits_by_category",
+      "description": "Search US nonprofits by mission category and state. Categories: education, healthcare, arts, environment, human_services, civil_rights, international, religion, science, sports (or raw NTEE letter A\u2013Z). Returns up to 25 results with name, EIN, city, and state. Uses ProPublica Nonprofit Explorer. Rate limit: 30/minute. No auth required."
+    },
+    {
+      "name": "nonprofit_fetch_nonprofit_financial_trends",
+      "description": "Multi-year financial trend analysis for any US nonprofit. Returns revenue CAGR, trend direction (GROWING/STABLE/DECLINING/VOLATILE/INSUFFICIENT_DATA), year-by-year revenue/expense/asset data, and health score history from IRS Form 990 filings via ProPublica. Default 5 years, max 10. Rate limit: 30/minute. No auth required."
     }
   ]
 }

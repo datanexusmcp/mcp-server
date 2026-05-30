@@ -23,6 +23,10 @@ from datanexus.core.audit import AuditContext, make_params_hash, standard_respon
 from datanexus.core.schema import ErrorCode, error_response
 from datanexus.core.timeout import with_timeout
 from datanexus.analytics import track_tool_call
+from datanexus.tools._circuit_breakers import (
+    _pypi_stats_breaker,
+    _npm_stats_breaker,
+)
 from datanexus.tools._maintainer_utils import _fetch_maintainer_history
 from datanexus.tools._security_utils import (
     _fetch_vulns,
@@ -392,10 +396,6 @@ _TYPO_KEY_FMT  = "dn:typosquat_ref:{eco}"    # ZSET per ecosystem
 _TYPO_COLD_TIMEOUT = 30.0                      # cold-start fetch hard cap
 _TYPO_WARN_TIMEOUT = 10.0                      # log warning if slower
 _MIN_REF_SIZE  = 10_000                        # refuse partial comparisons
-
-_pypi_stats_breaker = pybreaker.CircuitBreaker(fail_max=3, reset_timeout=30)
-_npm_stats_breaker  = pybreaker.CircuitBreaker(fail_max=3, reset_timeout=30)
-
 
 @security_sprint6.tool()
 @with_timeout

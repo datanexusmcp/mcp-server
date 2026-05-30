@@ -96,6 +96,11 @@ from datanexus.tools.security_sprint6  import security_sprint6
 from datanexus.tools.nonprofit_sprint6 import nonprofit_sprint6 as nonprofit_sprint6_server
 from datanexus.tools.security_stateful import security_stateful
 
+# ── Sprint 7 sub-server imports ───────────────────────────────────────────────
+from datanexus.tools.licence_sprint7    import licence_sprint7
+from datanexus.tools.cve_sprint7        import cve_sprint7
+from datanexus.tools.nonprofit_sprint7  import nonprofit_sprint7 as nonprofit_sprint7_server
+
 # ── Section 13 validation tool ───────────────────────────────────────────────
 from datanexus.tools.validation import validate_tool_output
 
@@ -230,6 +235,11 @@ main.mount(security_sprint6,          namespace="security")
 main.mount(nonprofit_sprint6_server,  namespace="nonprofit")
 main.mount(security_stateful,         namespace="security")
 
+# ── Mount Sprint 7 sub-servers ────────────────────────────────────────────────
+main.mount(licence_sprint7,           namespace="security")
+main.mount(cve_sprint7,               namespace="security")
+main.mount(nonprofit_sprint7_server,  namespace="nonprofit")
+
 # ── Register shared infrastructure tools (once — not per-tool duplicates) ─────
 main.tool()(report_feedback)
 main.tool()(report_mcpize_link)
@@ -247,7 +257,7 @@ async def health(request: Request) -> JSONResponse:
     return JSONResponse({
         "status": "ok",
         "service": "datanexus-mcp",
-        "tools": 41,
+        "tools": 46,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -267,7 +277,7 @@ async def mcp_manifest(request: Request) -> JSONResponse:
 if __name__ == "__main__":
     logger.info(
         "DataNexus MCP starting — transport=streamable-http — "
-        "41 tools registered (nonprofit×4, security×12, compliance×4, domain×7, "
+        "46 tools registered (nonprofit×6, security×15, compliance×4, domain×7, "
         "legal×4, govcon×3, regulatory×3, Shared×3, meta×1)"
     )
     main.run(

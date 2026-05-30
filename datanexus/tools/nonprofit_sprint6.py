@@ -20,6 +20,9 @@ import httpx
 import pybreaker
 from fastmcp import FastMCP
 
+from datanexus.tools._circuit_breakers import _propublica_breaker
+from datanexus.tools._nonprofit_utils import calculate_health_score
+
 from datanexus.core.audit import AuditContext, standard_response_fields
 from datanexus.core.schema import ErrorCode, error_response
 from datanexus.core.timeout import with_timeout
@@ -38,8 +41,6 @@ _DISCLAIMER = (
 
 _HTTP_HEADERS = {"User-Agent": "DataNexus MCP/1.0 (datanexusmcp.com)"}
 _TIMEOUT = httpx.Timeout(8.0, connect=5.0)
-
-_propublica_breaker = pybreaker.CircuitBreaker(fail_max=3, reset_timeout=30)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -202,20 +203,14 @@ def _parse_propublica(raw: dict) -> dict:
         delta = (totrevenue - prev_revenue) / prev_revenue
         revenue_growth_score = max(0.0, min(1.0, (delta + 0.1) / 0.2))  # -10% → 0, +10% → 1
 
-    # Health score (0–100)
-    health_score: Optional[float] = None
-    sub_scores = []
-    if programme_ratio is not None:
-        sub_scores.append(programme_ratio * 40)
-    if expense_ratio is not None:
-        sub_scores.append((1 - min(expense_ratio, 1.0)) * 30)
-    if revenue_growth_score is not None:
-        sub_scores.append(revenue_growth_score * 20)
-    if reserve_months is not None:
-        reserve_months_score = min(reserve_months / 6, 1.0)
-        sub_scores.append(reserve_months_score * 10)
-    if sub_scores:
-        health_score = round(sum(sub_scores), 1)
+    # Health score (0–100) — formula lives in _nonprofit_utils.py
+    health_score = calculate_health_score(
+        totrevenue=totrevenue or 0.0,
+        totfuncexpns=totfuncexpns or 0.0,
+        totprgmrevnue=totprgmrevnue or 0.0,
+        netassetsend=netassetsend or 0.0,
+        prev_revenue=prev_revenue,
+    )
 
     # Executive compensation (top 5 from employee array)
     employees = filing.get("employees") or []

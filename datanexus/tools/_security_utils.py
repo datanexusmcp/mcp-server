@@ -18,6 +18,12 @@ from urllib.parse import quote
 import httpx
 import pybreaker
 
+from datanexus.tools._circuit_breakers import (
+    _nvd_breaker,
+    _depsdev_breaker,
+    _osv_breaker,
+)
+
 log = logging.getLogger("datanexus.tools._security_utils")
 
 # ── HTTP constants ─────────────────────────────────────────────────────────────
@@ -26,12 +32,6 @@ _HTTP_HEADERS = {"User-Agent": "DataNexus MCP/1.0 (datanexusmcp.com)"}
 _TIMEOUT      = httpx.Timeout(8.0, connect=5.0)
 _OSV_QUERY    = "https://api.osv.dev/v1/query"
 _DEPS_DEV     = "https://api.deps.dev/v3alpha"
-
-# ── Circuit breakers (module-level singletons) ─────────────────────────────────
-
-_nvd_breaker      = pybreaker.CircuitBreaker(fail_max=3, reset_timeout=30)
-_depsdev_breaker  = pybreaker.CircuitBreaker(fail_max=3, reset_timeout=30)
-_osv_breaker      = pybreaker.CircuitBreaker(fail_max=3, reset_timeout=30)
 
 # ── Ecosystem maps ─────────────────────────────────────────────────────────────
 

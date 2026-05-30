@@ -21,14 +21,16 @@ from urllib.parse import quote
 import httpx
 import pybreaker
 
+from datanexus.tools._circuit_breakers import (
+    _pypi_stats_breaker,
+    _npm_stats_breaker,
+)
+
 log = logging.getLogger("datanexus.tools._maintainer_utils")
 
 _HTTP_HEADERS  = {"User-Agent": "DataNexus MCP/1.0 (datanexusmcp.com)"}
 _TIMEOUT       = httpx.Timeout(5.0, connect=4.0)   # main data fetch
 _AGE_TIMEOUT   = 2.0                                 # account-age proxy: best-effort cap
-
-_pypi_stats_breaker = pybreaker.CircuitBreaker(fail_max=3, reset_timeout=30)
-_npm_stats_breaker  = pybreaker.CircuitBreaker(fail_max=3, reset_timeout=30)
 
 _NOW = lambda: datetime.now(timezone.utc)  # noqa: E731  (testable injection point)
 
