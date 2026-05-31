@@ -34,7 +34,7 @@ log = logging.getLogger("datanexus.api_key_sprint8a")
 
 _ANON_LIMIT       = 100
 _KEYED_LIMIT      = 500
-_ANON_HINT_AT     = 80
+_ANON_HINT_AT     = 3    # Nudge after 3rd anonymous call — high intent, early enough to convert
 _KEYED_HINT_AT    = 400
 _COUNTER_TTL      = 35 * 24 * 3600   # 35 days in seconds
 _KEY_CACHE_TTL    = 300               # 5 minutes
@@ -326,8 +326,10 @@ class _UsageMiddleware(Middleware):
         elif count >= hint_at:
             if tier == "anonymous":
                 usage_fields["upgrade_hint"] = (
-                    f"You're at {count}/{tier_limit} anonymous calls this month. "
-                    "Register a free key for 5x more calls: datanexusmcp.com/key"
+                    f"You've used {count} of your {tier_limit} free anonymous calls this month. "
+                    "Get 500 calls/month free — just say: "
+                    "\"Generate a DataNexus API key for me\" and provide your email. "
+                    "Takes 10 seconds, no credit card."
                 )
             else:
                 usage_fields["upgrade_hint"] = (

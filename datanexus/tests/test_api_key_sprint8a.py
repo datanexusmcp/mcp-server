@@ -219,7 +219,7 @@ def test_usage_middleware_registered_tier_limit_500():
 
 
 def test_usage_middleware_hint_appears_at_threshold():
-    result = _make_usage_result(count=85, api_key_hash=None)  # 85 > hint_at=80
+    result = _make_usage_result(count=5, api_key_hash=None)  # 5 > hint_at=3
     assert "upgrade_hint" in result.structured_content
     assert "limit_warning" not in result.structured_content
 
