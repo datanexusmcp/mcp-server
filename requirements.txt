@@ -11,6 +11,7 @@ fakeredis>=2.35.1
 anthropic>=0.40.0
 posthog>=3.0.0
 pybreaker>=1.0.0
+tornado>=6.0.0
 cyclonedx-python-lib>=4.0
 spdx-tools>=0.8.0
 

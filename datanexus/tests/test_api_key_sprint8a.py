@@ -169,11 +169,11 @@ def test_api_key_middleware_non_http_scope_passes_through():
 def _make_usage_result(count: int, api_key_hash=None, ip="1.2.3.4",
                        payment_enabled="false"):
     """Run _UsageMiddleware.on_call_tool and return the ToolResult."""
-    from mcp.types import CallToolResult, TextContent
+    from fastmcp.tools.base import ToolResult as CallToolResult
     from datanexus.tools.api_key_sprint8a import _UsageMiddleware
     from datanexus.core.request_context import api_key_var, client_ip_var
 
-    dummy = CallToolResult(content=[TextContent(type="text", text="ok")])
+    dummy = CallToolResult(content="ok")
 
     async def _run():
         api_key_var.set(api_key_hash)
@@ -206,51 +206,50 @@ def _make_usage_result(count: int, api_key_hash=None, ip="1.2.3.4",
 
 def test_usage_middleware_anonymous_tier_injects_usage():
     result = _make_usage_result(count=5, api_key_hash=None)
-    assert result.structuredContent is not None
-    assert result.structuredContent["usage"]["tier"] == "anonymous"
-    assert result.structuredContent["usage"]["limit"] == 100
-    assert result.structuredContent["usage"]["calls_this_month"] == 5
+    assert result.structured_content is not None
+    assert result.structured_content["usage"]["tier"] == "anonymous"
+    assert result.structured_content["usage"]["limit"] == 100
+    assert result.structured_content["usage"]["calls_this_month"] == 5
 
 
 def test_usage_middleware_registered_tier_limit_500():
     result = _make_usage_result(count=10, api_key_hash=_sha("dnx_testkey"))
-    assert result.structuredContent["usage"]["tier"] == "registered"
-    assert result.structuredContent["usage"]["limit"] == 500
+    assert result.structured_content["usage"]["tier"] == "registered"
+    assert result.structured_content["usage"]["limit"] == 500
 
 
 def test_usage_middleware_hint_appears_at_threshold():
     result = _make_usage_result(count=85, api_key_hash=None)  # 85 > hint_at=80
-    assert "upgrade_hint" in result.structuredContent
-    assert "limit_warning" not in result.structuredContent
+    assert "upgrade_hint" in result.structured_content
+    assert "limit_warning" not in result.structured_content
 
 
 def test_usage_middleware_warning_appears_at_limit():
     result = _make_usage_result(count=100, api_key_hash=None)  # == limit
-    assert "limit_warning" in result.structuredContent
-    assert "upgrade_hint" not in result.structuredContent
+    assert "limit_warning" in result.structured_content
+    assert "upgrade_hint" not in result.structured_content
 
 
 def test_usage_middleware_payment_enabled_hard_gate():
     """PAYMENT_ENABLED=true + count > limit → isError ToolResult."""
     result = _make_usage_result(count=101, api_key_hash=None, payment_enabled="true")
-    assert result.isError is True
-    assert result.structuredContent["error"] == "rate_limit_exceeded"
+    assert result.structured_content["error"] == "rate_limit_exceeded"
 
 
 def test_usage_middleware_payment_disabled_serves_over_limit():
     """PAYMENT_ENABLED=false → serve even when count >= limit."""
     result = _make_usage_result(count=150, api_key_hash=None, payment_enabled="false")
-    assert result.isError is not True
-    assert "limit_warning" in result.structuredContent
+    assert result.structured_content is not None
+    assert "limit_warning" in result.structured_content
 
 
 def test_usage_middleware_redis_down_fails_open():
     """Redis unavailable → return tool result unchanged."""
-    from mcp.types import CallToolResult, TextContent
+    from fastmcp.tools.base import ToolResult as CallToolResult
     from datanexus.tools.api_key_sprint8a import _UsageMiddleware
     from datanexus.core.request_context import api_key_var, client_ip_var
 
-    dummy = CallToolResult(content=[TextContent(type="text", text="data")])
+    dummy = CallToolResult(content="data")
 
     async def _run():
         api_key_var.set(None)

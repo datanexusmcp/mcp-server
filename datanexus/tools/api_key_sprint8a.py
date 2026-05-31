@@ -23,7 +23,7 @@ from typing import Optional
 
 from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware, MiddlewareContext
-from mcp.types import CallToolResult as ToolResult
+from fastmcp.tools.base import ToolResult
 
 from datanexus.cache import get_redis
 from datanexus.core.request_context import api_key_var, client_ip_var
@@ -296,7 +296,6 @@ class _UsageMiddleware(Middleware):
         payment_enabled = os.environ.get("PAYMENT_ENABLED", "false").lower() == "true"
 
         if payment_enabled and count >= tier_limit:
-            from mcp.types import TextContent
             next_month = _next_month_iso()
             error_content = {
                 "error": "rate_limit_exceeded",
@@ -306,9 +305,8 @@ class _UsageMiddleware(Middleware):
                 "tier": tier,
             }
             return ToolResult(
-                content=[TextContent(type="text", text=str(error_content))],
-                structuredContent=error_content,
-                isError=True,
+                content=str(error_content),
+                structured_content=error_content,
             )
 
         usage_fields: dict = {
@@ -337,9 +335,9 @@ class _UsageMiddleware(Middleware):
                     "Upgrade for unlimited calls: datanexusmcp.com/upgrade"
                 )
 
-        if result.structuredContent:
-            result.structuredContent.update(usage_fields)
+        if result.structured_content:
+            result.structured_content.update(usage_fields)
         else:
-            result = result.model_copy(update={"structuredContent": usage_fields})
+            result = result.model_copy(update={"structured_content": usage_fields})
 
         return result
