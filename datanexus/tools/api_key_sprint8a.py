@@ -32,7 +32,7 @@ log = logging.getLogger("datanexus.api_key_sprint8a")
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-_ANON_LIMIT       = 100
+_ANON_LIMIT       = 10
 _KEYED_LIMIT      = 500
 _ANON_HINT_AT     = 2    # Nudge after 2nd anonymous call — user has shown intent, ask for email
 _KEYED_HINT_AT    = 400

@@ -208,7 +208,7 @@ def test_usage_middleware_anonymous_tier_injects_usage():
     result = _make_usage_result(count=5, api_key_hash=None)
     assert result.structured_content is not None
     assert result.structured_content["usage"]["tier"] == "anonymous"
-    assert result.structured_content["usage"]["limit"] == 100
+    assert result.structured_content["usage"]["limit"] == 10
     assert result.structured_content["usage"]["calls_this_month"] == 5
 
 
@@ -225,20 +225,20 @@ def test_usage_middleware_hint_appears_at_threshold():
 
 
 def test_usage_middleware_warning_appears_at_limit():
-    result = _make_usage_result(count=100, api_key_hash=None)  # == limit
+    result = _make_usage_result(count=10, api_key_hash=None)  # == limit
     assert "limit_warning" in result.structured_content
     assert "upgrade_hint" not in result.structured_content
 
 
 def test_usage_middleware_payment_enabled_hard_gate():
     """PAYMENT_ENABLED=true + count > limit → isError ToolResult."""
-    result = _make_usage_result(count=101, api_key_hash=None, payment_enabled="true")
+    result = _make_usage_result(count=11, api_key_hash=None, payment_enabled="true")
     assert result.structured_content["error"] == "rate_limit_exceeded"
 
 
 def test_usage_middleware_payment_disabled_serves_over_limit():
     """PAYMENT_ENABLED=false → serve even when count >= limit."""
-    result = _make_usage_result(count=150, api_key_hash=None, payment_enabled="false")
+    result = _make_usage_result(count=15, api_key_hash=None, payment_enabled="false")
     assert result.structured_content is not None
     assert "limit_warning" in result.structured_content
 
