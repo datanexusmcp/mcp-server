@@ -37,7 +37,7 @@ _DISCLAIMER = (
     "Verify with your legal team before making licence decisions."
 )
 
-_DEPS_DEV_URL  = "https://api.deps.dev/v3alpha"
+_DEPS_DEV_URL  = "https://api.deps.dev/v3"
 _HTTP_TIMEOUT  = httpx.Timeout(15.0, connect=5.0)
 _HTTP_HEADERS  = {"User-Agent": "DataNexus MCP/1.0 (datanexusmcp.com)"}
 _LICENCE_TTL   = 3600  # 1 hour

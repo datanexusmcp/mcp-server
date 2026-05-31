@@ -31,7 +31,7 @@ log = logging.getLogger("datanexus.tools._security_utils")
 _HTTP_HEADERS = {"User-Agent": "DataNexus MCP/1.0 (datanexusmcp.com)"}
 _TIMEOUT      = httpx.Timeout(8.0, connect=5.0)
 _OSV_QUERY    = "https://api.osv.dev/v1/query"
-_DEPS_DEV     = "https://api.deps.dev/v3alpha"
+_DEPS_DEV     = "https://api.deps.dev/v3"
 
 # ── Ecosystem maps ─────────────────────────────────────────────────────────────
 
@@ -241,7 +241,7 @@ async def _fetch_depsdev(package: str, ecosystem: str, version: str) -> dict:
     ver_enc = quote(version, safe="")
     url = (
         f"{_DEPS_DEV}/systems/{deps_system}/packages/{pkg_enc}"
-        f"/versions/{ver_enc}/dependencies"
+        f"/versions/{ver_enc}:dependencies"
     )
 
     async def _call() -> dict:

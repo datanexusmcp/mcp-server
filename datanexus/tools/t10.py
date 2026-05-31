@@ -74,7 +74,7 @@ T10_DISCLAIMER = (
 _OSV_QUERY_URL    = "https://api.osv.dev/v1/query"
 _OSV_BATCH_URL    = "https://api.osv.dev/v1/querybatch"
 _NVD_URL          = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-_DEPS_DEV_URL     = "https://api.deps.dev/v3alpha"
+_DEPS_DEV_URL     = "https://api.deps.dev/v3"
 _HTTP_TIMEOUT     = httpx.Timeout(30.0, connect=10.0)
 _HTTP_HEADERS     = {"User-Agent": "DataNexus MCP/1.0 (datanexusmcp.com)"}
 _DEP_GRAPH_TIMEOUT = 8.0   # hard limit — spec requirement
@@ -536,7 +536,7 @@ async def fetch_dependency_graph(
                 "source_url":       (
                     f"{_DEPS_DEV_URL}/systems/{deps_system}/packages/"
                     f"{quote(pkg_clean, safe='')}/versions/"
-                    f"{quote(ver_clean, safe='')}/dependencies"
+                    f"{quote(ver_clean, safe='')}:dependencies"
                 ),
                 "fetch_timestamp":  data_as_of,
                 "cache_hit":        False,
@@ -1471,7 +1471,7 @@ async def _fetch_dep_graph_live(
     ver_enc = quote(version, safe="")
     url = (
         f"{_DEPS_DEV_URL}/systems/{system}/packages/"
-        f"{pkg_enc}/versions/{ver_enc}/dependencies"
+        f"{pkg_enc}/versions/{ver_enc}:dependencies"
     )
     resp = await client.get(url)
     resp.raise_for_status()
