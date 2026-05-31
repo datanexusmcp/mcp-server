@@ -24,6 +24,7 @@ from datanexus.tools._circuit_breakers import (
     _cisa_breaker,
     _epss_breaker,
 )
+from datanexus.core.cache import get_cached as _get_cached_sync, set_cached as _set_cached_sync
 
 log = logging.getLogger("datanexus.tools._cve_utils")
 
@@ -117,6 +118,16 @@ async def _fetch_cisa_kev_util(cve_id: str) -> dict:
     global _kev_catalog_cache
 
     if _kev_catalog_cache is None:
+        # 1. Try Redis first — t10.py stores the catalog here after every live fetch.
+        #    Key: datanexus:kev:catalog  (written by _set_cached("kev", "catalog", ...))
+        cached = _get_cached_sync("kev", "catalog")
+        if cached and isinstance(cached, dict) and "vulnerabilities" in cached:
+            _kev_catalog_cache = cached["vulnerabilities"]
+        elif cached and isinstance(cached, list):
+            _kev_catalog_cache = cached
+
+    if _kev_catalog_cache is None:
+        # 2. Redis miss — fetch live from CISA and populate both caches.
         async def _call() -> list:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(10.0, connect=5.0),
@@ -129,6 +140,8 @@ async def _fetch_cisa_kev_util(cve_id: str) -> dict:
                 return data.get("vulnerabilities", [])
 
         _kev_catalog_cache = await _cisa_breaker.call_async(_call)
+        # Populate Redis so t10.py and future util calls share the same catalog.
+        _set_cached_sync("kev", "catalog", {"vulnerabilities": _kev_catalog_cache}, 25 * 3600)
 
     found = any(
         v.get("cveID", "").upper() == cve_id.upper()
