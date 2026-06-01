@@ -15,6 +15,8 @@ Table (columns added by migration 004):
   error_msg   TEXT   (first 500 chars of exception message)
   latency_ms  INTEGER
   is_smoke    BOOLEAN  (true when DATANEXUS_SMOKE_RUN=1)
+  call_type   VARCHAR(20)  (organic|glama|smoke|owner|claude_ai|unknown)
+  is_organic  BOOLEAN  (true for organic + claude_ai)
 
 Smoke flag behaviour:
   - is_smoke=True rows are still written (useful for pass-rate tracking)
@@ -34,6 +36,7 @@ from typing import Optional
 
 from datanexus.core.activation_detector import UsageRow, check as _activation_check
 from datanexus.core.ip_classifier import classify_ip
+from payment.config import classify_call
 
 log = logging.getLogger("datanexus.usage_recorder")
 
@@ -136,7 +139,9 @@ async def record_usage(
       Records the row with is_smoke=True — useful for pass-rate tracking.
       PostHog is excluded separately in analytics._fire().
     """
-    is_smoke = os.environ.get("DATANEXUS_SMOKE_RUN") == "1"
+    is_smoke  = os.environ.get("DATANEXUS_SMOKE_RUN") == "1"
+    call_type = classify_call(client_ip, api_key_hash)
+    is_organic = call_type in ("organic", "claude_ai")
 
     try:
         pool = await _get_pool()
@@ -151,8 +156,9 @@ async def record_usage(
                 INSERT INTO usage
                   (session_id, tool_id, call_uuid, created_at,
                    client_ip, tool_input, success, error_msg,
-                   latency_ms, is_smoke, api_key_hash)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                   latency_ms, is_smoke, api_key_hash,
+                   call_type, is_organic)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 """,
                 session_id,
                 tool_id,
@@ -165,6 +171,8 @@ async def record_usage(
                 latency_ms,
                 is_smoke,
                 api_key_hash,
+                call_type,
+                is_organic,
             )
 
         # Activation milestone check — fire-and-forget, never raises

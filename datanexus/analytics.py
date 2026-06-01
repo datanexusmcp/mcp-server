@@ -8,6 +8,9 @@ import time
 from datetime import date
 from typing import Optional
 
+from payment.config import classify_call
+from datanexus.core.request_context import api_key_var, client_ip_var
+
 log = logging.getLogger(__name__)
 
 # Lazy import — PostHog only loaded if key is set
@@ -101,6 +104,11 @@ async def track_tool_call(
     Track every tool call. Call from tool handlers.
     Runs in background — never awaited by caller.
     """
+    client_ip    = client_ip_var.get() or "unknown"
+    api_key_hash = api_key_var.get()
+    call_type    = classify_call(client_ip, api_key_hash)
+    is_organic   = call_type in ("organic", "claude_ai")
+
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _fire, "tool_called", {
         # Tool identity
@@ -117,6 +125,10 @@ async def track_tool_call(
         # Non-PII context (safe to log)
         "ecosystem":    ecosystem or "none",
         "jurisdiction": jurisdiction or "none",
+
+        # Call origin — use for PostHog filtering (is_organic=true cohort)
+        "call_type":    call_type,
+        "is_organic":   is_organic,
 
         # Platform
         "server":       "datanexusmcp.com",

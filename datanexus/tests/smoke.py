@@ -24,9 +24,12 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 # Mark this process as a smoke test run so that:
-#  1. UsageRecorder writes rows with is_smoke=True (visible in pass-rate stats)
-#  2. PostHog events are suppressed (keeps organic analytics clean)
+#  1. UsageRecorder writes rows with call_type='smoke', is_organic=False
+#  2. PostHog events still fire but carry is_organic=False — filtered out by dashboard cohort
 # Must be set before any tool import so the flag is visible at module load time.
+#
+# For HTTP-based smoke tests, also pass X-DataNexus-Key: payment.config.SMOKE_API_KEY
+# so classify_call() returns 'smoke' via key-hash matching (not just the env var).
 os.environ["DATANEXUS_SMOKE_RUN"] = "1"
 
 log = logging.getLogger("datanexus.smoke")
