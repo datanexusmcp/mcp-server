@@ -141,6 +141,10 @@ async def record_usage(
     """
     is_smoke  = os.environ.get("DATANEXUS_SMOKE_RUN") == "1"
     call_type = classify_call(client_ip, api_key_hash)
+    # Bug 10 fix: smoke env var overrides IP-based classification.
+    # Catches unknown-IP smoke calls that would otherwise fall through to organic.
+    if is_smoke:
+        call_type = "smoke"
     is_organic = call_type in ("organic", "claude_ai")
 
     try:
