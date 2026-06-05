@@ -17,7 +17,9 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 from urllib.parse import quote
 
 import httpx
@@ -91,12 +93,12 @@ def _to_float(val) -> Optional[float]:
 # TOOL 4 — search_nonprofits_by_category
 # ══════════════════════════════════════════════════════════════════════════════
 
-@nonprofit_sprint7.tool()
+@nonprofit_sprint7.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T04")
 async def search_nonprofits_by_category(
-    category: str,
-    state: Optional[str] = None,
+    category: Annotated[str, Field(description="NTEE category e.g. education, healthcare, arts. Required.")],
+    state: Annotated[Optional[str], Field(description="Two-letter US state code e.g. CA. Optional.")] = None,
 ) -> dict:
     """Search US nonprofits by mission category and state. Returns up to 25 results with revenue, assets, and health scores (0–100). Category maps to NTEE codes: education, healthcare, arts, environment, human_services, civil_rights, international, religion, science, sports. Raw NTEE letter (A–Z) also accepted. Uses ProPublica Nonprofit Explorer API. Rate limit: 30/minute. No auth required. Starting point for nonprofit due diligence — follow with nonprofit_fetch_nonprofit_full_profile for deep dive on a specific EIN. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="nonprofit_search_nonprofits_by_category", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -256,12 +258,12 @@ async def search_nonprofits_by_category(
 # TOOL 5 — fetch_nonprofit_financial_trends
 # ══════════════════════════════════════════════════════════════════════════════
 
-@nonprofit_sprint7.tool()
+@nonprofit_sprint7.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T04")
 async def fetch_nonprofit_financial_trends(
-    ein: str,
-    years: int = 5,
+    ein: Annotated[str, Field(description="EIN in format XX-XXXXXXX e.g. 46-5734087. Required.")],
+    years: Annotated[int, Field(description="Number of years of trend data 1-10. Default 5. Optional.")] = 5,
 ) -> dict:
     """5-year financial trend for any US nonprofit. Revenue growth, expense ratios, reserve trajectory, and health score history from IRS Form 990 data via ProPublica. Returns trend_direction (GROWING/STABLE/DECLINING/VOLATILE/INSUFFICIENT_DATA), CAGR, and year-by-year revenue, expense, and asset trends. years parameter: 1–10, default 5. Rate limit: 30/minute. No auth required. Complements nonprofit_fetch_nonprofit_full_profile by adding multi-year context. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="nonprofit_fetch_nonprofit_financial_trends", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()

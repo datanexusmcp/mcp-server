@@ -15,7 +15,9 @@ import pathlib
 import re
 import time
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
+
+from pydantic import Field
 
 import httpx
 from fastmcp import FastMCP
@@ -74,12 +76,12 @@ _UI_PREFIXES = (
 # TOOL 1 — frontend_security_detect_typosquatting
 # ══════════════════════════════════════════════════════════════════════════════
 
-@frontend_sprint8.tool()
+@frontend_sprint8.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T20")
 async def detect_typosquatting(
-    package_name: str,
-    ecosystem: Literal["npm", "pypi"] = "npm",
+    package_name: Annotated[str, Field(description="Package name e.g. requests. Required.")],
+    ecosystem: Annotated[Literal["npm", "pypi"], Field(description="Package ecosystem: npm or pypi. Default npm.")] = "npm",
 ) -> dict:
     """Typosquatting detection optimised for the top 500 frontend packages (React, Vite, Axios, Lodash, etc.). Fewer false positives than a full npm scan. For backend packages, use security_detect_typosquatting instead. package_name: Package name to check. Required. ecosystem: npm or pypi — default npm. Uses Damerau-Levenshtein distance ≤ 2 against a curated frontend-package corpus. Returns is_likely_typosquat, closest_match, distance, and risk_level (LOW/MEDIUM/HIGH). Read-only. No side effects. Idempotent. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="frontend_security_detect_typosquatting", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -175,12 +177,12 @@ async def detect_typosquatting(
 # TOOL 2 — frontend_security_audit_manifest
 # ══════════════════════════════════════════════════════════════════════════════
 
-@frontend_sprint8.tool()
+@frontend_sprint8.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T20")
 async def audit_manifest(
-    manifest: str,
-    lockfile: Optional[str] = None,
+    manifest: Annotated[str, Field(description="Contents of package.json as a string. Required. 500 KB max.")],
+    lockfile: Annotated[Optional[str], Field(description="Contents of package-lock.json or yarn.lock. Optional.")] = None,
 ) -> dict:
     """Audit a frontend package.json for security risks — returns a single SHIP/CAUTION/BLOCK verdict with licence risks and abandonment signals. Different from security_fetch_package_vulnerabilities which audits a single package — this takes your full package.json. manifest: Contents of package.json as a string. Required. 500 KB max. lockfile: Contents of package-lock.json or yarn.lock (optional). If provided, audits pinned versions; otherwise audits semver ranges. BLOCK: any critical CVE in direct deps OR GPL-3.0 in commercial context. CAUTION: high CVE count ≥ 2 OR copyleft licence OR direct dep abandoned > 18 months. Sources: OSV.dev (CVEs), deps.dev (licences), npm registry (abandonment). Read-only. No side effects. Idempotent. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="frontend_security_audit_manifest", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -369,12 +371,12 @@ _SECRET_PATTERNS = [
 _SAFE_REF_RE = re.compile(r'\$\{\{.*?secrets\..*?\}\}|\$\{\{.*?env\..*?\}\}')
 
 
-@frontend_sprint8.tool()
+@frontend_sprint8.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T20")
 async def audit_ci_pipeline(
-    config: str,
-    config_type: Literal["github_actions", "vercel", "netlify"] = "github_actions",
+    config: Annotated[str, Field(description="Raw YAML/TOML content of your CI config. Required. 500 KB max.")],
+    config_type: Annotated[Literal["github_actions", "vercel", "netlify"], Field(description="CI config type: github_actions, vercel, or netlify. Default github_actions.")] = "github_actions",
 ) -> dict:
     """Scan GitHub Actions, Vercel, or Netlify CI configs for exposed secrets, missing lockfile enforcement, and unpinned dependencies. Paste your config content — no filesystem access required. config: Raw YAML/TOML content of your CI config. Required. 500 KB max. config_type: github_actions (full check suite), vercel, or netlify (secrets only in Sprint 8). Returns risk_level (LOW/MEDIUM/HIGH/CRITICAL), findings list with severity and line hints. NOTE: ${{ secrets.FOO }} and ${{ env.FOO }} references are NOT flagged — only literal secret values. Read-only. No side effects. Idempotent. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="frontend_security_audit_ci_pipeline", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -434,12 +436,12 @@ async def audit_ci_pipeline(
 # TOOL 4 — frontend_security_fetch_package_risk_brief
 # ══════════════════════════════════════════════════════════════════════════════
 
-@frontend_sprint8.tool()
+@frontend_sprint8.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T20")
 async def fetch_package_risk_brief(
-    package_name: str,
-    version: Optional[str] = None,
+    package_name: Annotated[str, Field(description="Package name e.g. requests. Required.")],
+    version: Annotated[Optional[str], Field(description="Package version e.g. 2.28.0. Optional.")] = None,
 ) -> dict:
     """SHIP/CAUTION/BLOCK risk brief for an npm package with frontend-specific context. Wraps security_fetch_package_risk_brief restricted to npm, and adds weekly_downloads and is_ui_component signals. package_name: npm package name. Required. version: Optional pinned version — latest resolved if omitted. Returns verdict, CVE counts, licence risk, maintainer health, weekly_downloads, is_ui_component. Use security_fetch_package_risk_brief for non-npm ecosystems. Read-only. No side effects. Idempotent. Sources: OSV.dev, deps.dev, npm registry. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="frontend_security_fetch_package_risk_brief", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()

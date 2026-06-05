@@ -13,7 +13,9 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 from urllib.parse import quote
 
 import httpx
@@ -47,10 +49,10 @@ _TIMEOUT = httpx.Timeout(8.0, connect=5.0)
 # TOOL 3 — fetch_nonprofit_full_profile
 # ══════════════════════════════════════════════════════════════════════════════
 
-@nonprofit_sprint6.tool()
+@nonprofit_sprint6.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T12")
-async def fetch_nonprofit_full_profile(ein: str) -> dict:
+async def fetch_nonprofit_full_profile(ein: Annotated[str, Field(description="EIN in format XX-XXXXXXX e.g. 46-5734087. Required.")]) -> dict:
     """Complete nonprofit due diligence in one call. Revenue trends, executive pay, risk flags, and a health score from IRS 990 data. Uses ProPublica Nonprofit Explorer API with IRS e-File fallback. Data refreshed on each call. Returns financials, executive_compensation, risk_flags, health_score (0–100), programme_ratio, fundraising_sustainability, and upstream_status. Rate limit: 30/minute. No auth required. For grant-makers, investors, and compliance teams performing nonprofit due diligence. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="nonprofit_fetch_nonprofit_full_profile", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False

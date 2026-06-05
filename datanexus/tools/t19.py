@@ -34,6 +34,9 @@ import os
 import re
 import time
 from datetime import datetime, timezone
+from typing import Annotated
+
+from pydantic import Field
 
 import httpx
 from fastmcp import FastMCP
@@ -197,13 +200,13 @@ def _regs_gov_headers() -> dict:
 # DATA TOOL 1 — search_open_rulemakings
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T19")
 async def search_open_rulemakings(
-    keyword: str,
-    agency: str = "",
-    status: str = "open",
+    keyword: Annotated[str, Field(description="Topic keywords e.g. artificial intelligence. Required.")],
+    agency: Annotated[str, Field(description="Agency abbreviation e.g. FTC, FDA, SEC. Optional.")] = "",
+    status: Annotated[str, Field(description="Filter: open, closed, or all. Default open. Optional.")] = "open",
 ) -> dict:
     """Search open rulemakings and public comment periods on Regulations.gov and the Federal Register. Read-only. No side effects. Idempotent. US federal only. keyword: Topic keywords e.g. artificial intelligence, data privacy. Required. agency: Agency abbreviation e.g. FTC, FDA, SEC, EPA. Optional, defaults to all agencies. status: One of open, closed, or all. Optional. Default open. Returns docket title, agency, comment deadline, docket ID, and document count. Use this when monitoring regulatory activity on a topic. Use regulatory_fetch_docket_details instead when you have a docket ID and need full detail. Verified source: Regulations.gov + Federal Register. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="regulatory_search_open_rulemakings", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -398,10 +401,10 @@ No rulemakings found for this keyword and status.
 # DATA TOOL 2 — fetch_docket_details
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T19")
-async def fetch_docket_details(docket_id: str) -> dict:
+async def fetch_docket_details(docket_id: Annotated[str, Field(description="Docket ID e.g. EPA-HQ-OAR-2021-0668. Required.")]) -> dict:
     """Fetch full details for a specific regulatory docket by ID. Read-only. No side effects. Idempotent. US federal only. docket_id: Docket identifier in agency format e.g. EPA-HQ-OAR-2021-0317 or FTC-2024-0041. Required. Timeout is 30 seconds — large dockets may be slow. Returns docket title, agency, status, comment period dates, total comment count, and list of related documents. Use this when you have a docket ID from a search. Use regulatory_search_open_rulemakings instead when you need to find dockets by topic first. Verified source: Regulations.gov + Federal Register fallback. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="regulatory_fetch_docket_details", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -617,13 +620,13 @@ Docket details unavailable from all sources. Try again shortly.
 # DATA TOOL 3 — fetch_federal_register_notices
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T19")
 async def fetch_federal_register_notices(
-    agency: str,
-    keyword: str = "",
-    date_from: str = "",
+    agency: Annotated[str, Field(description="Agency name or abbreviation e.g. SEC, EPA. Required.")],
+    keyword: Annotated[str, Field(description="Optional topic filter e.g. cryptocurrency. Optional.")] = "",
+    date_from: Annotated[str, Field(description="Earliest publication date ISO 8601 e.g. 2024-01-31. Optional.")] = "",
 ) -> dict:
     """Fetch recent Federal Register notices and rules for a specific agency. Read-only. No side effects. Idempotent. US federal only. agency: Agency name or abbreviation e.g. SEC, Food and Drug Administration, EPA. Required. keyword: Optional topic filter e.g. cryptocurrency. Optional, defaults to all notices. date_from: Earliest publication date in ISO 8601 format e.g. 2024-01-31. Optional, defaults to last 90 days. Returns document type, title, publication date, effective date, and CFR citations. Use this to monitor recent regulatory activity for an agency. Use regulatory_search_open_rulemakings instead when filtering by topic across all agencies. Verified source: Federal Register API. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="regulatory_fetch_federal_register_notices", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()

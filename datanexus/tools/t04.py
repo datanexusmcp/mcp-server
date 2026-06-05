@@ -33,7 +33,9 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 import httpx
 from fastmcp import FastMCP
@@ -111,10 +113,10 @@ UK_CHARITY_TTL = 86400   # 24h — UK GDPR maximum
 # DATA TOOL 1 — fetch_nonprofit_by_ein
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T04")
-async def fetch_nonprofit_by_ein(ein: str) -> dict:
+async def fetch_nonprofit_by_ein(ein: Annotated[str, Field(description="EIN in format XX-XXXXXXX e.g. 46-5734087. Required.")]) -> dict:
     """Fetch IRS 990 filing data for any US nonprofit by EIN. Read-only. No side effects. Idempotent. US only. ein: 9-digit Employer ID with or without dash, e.g. 46-5734087 or 465734087. Required. Returns name, revenue, expenses, assets, NTEE code, and mission from the most recent 990 filing. Use this when you have the exact EIN. Use nonprofit_search_nonprofits_by_name instead when you only have a name. Verified source: IRS EO BMF + IRS TEOS. 7-day cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="nonprofit_fetch_nonprofit_by_ein", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -239,10 +241,10 @@ async def fetch_nonprofit_by_ein(ein: str) -> dict:
 # DATA TOOL 2 — search_nonprofits_by_name
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T04")
-async def search_nonprofits_by_name(name: str, state: str = "") -> dict:
+async def search_nonprofits_by_name(name: Annotated[str, Field(description="Organization name to search e.g. Red Cross. Required.")], state: Annotated[str, Field(description="Two-letter US state code e.g. CA. Optional.")] = "") -> dict:
     """Search US nonprofits by name with optional state filter. Read-only. No side effects. Idempotent. US only. Returns up to 25 matches. name: Full or partial organisation name. Required. state: Two-letter US state code e.g. CA, NY. Optional, defaults to all states. Returns EIN, name, state, revenue, and NTEE code for each match. Use this when you have a name but not the EIN. Use nonprofit_fetch_nonprofit_by_ein instead when you have the exact EIN for a precise single lookup. Verified source: IRS EO BMF. 7-day cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="nonprofit_search_nonprofits_by_name", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -336,10 +338,10 @@ async def search_nonprofits_by_name(name: str, state: str = "") -> dict:
 # DATA TOOL 3 — fetch_charity_uk
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T04")
-async def fetch_charity_uk(charity_number_or_name: str) -> dict:
+async def fetch_charity_uk(charity_number_or_name: Annotated[str, Field(description="UK charity number e.g. 1089464 or name substring. Required.")]) -> dict:
     """Fetch UK registered charity details by charity number or organisation name. Read-only. No side effects. Idempotent. UK only. charity_number_or_name: UK registered charity number (7 digits, e.g. 1234567) or full/partial organisation name. Required. Returns registration status, income, expenditure, activities, and trustee count. Use this for UK charities. Use nonprofit_fetch_nonprofit_by_ein or nonprofit_search_nonprofits_by_name for US nonprofits. Verified source: UK Charity Commission OGL v3. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="nonprofit_fetch_charity_uk", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False

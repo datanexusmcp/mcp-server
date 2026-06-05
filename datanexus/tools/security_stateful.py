@@ -29,7 +29,9 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Literal, List, Optional
+from typing import Annotated, Literal, List, Optional
+
+from pydantic import Field
 
 from fastmcp import FastMCP
 
@@ -62,13 +64,13 @@ _SBOM_SIZE_LIMIT   = 512_000   # 500 KB
 # TOOL 4 — fetch_cve_watch
 # ══════════════════════════════════════════════════════════════════════════════
 
-@security_stateful.tool()
+@security_stateful.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T13")
 async def fetch_cve_watch(
-    watch_id: str,
-    cve_ids: List[str],
-    action: Literal["create", "check", "delete"],
+    watch_id: Annotated[str, Field(description="Unique watch identifier to create, check, or delete. Required.")],
+    cve_ids: Annotated[List[str], Field(description="List of CVE IDs to watch e.g. ['CVE-2021-44228']. Required for create.")],
+    action: Annotated[Literal["create", "check", "delete"], Field(description="Action: create, check, or delete the watchlist. Required.")],
 ) -> dict:
     """Persistent CVE watchlist. Create once, check anytime for new events since your last visit — patch releases, KEV listings, PoC publications, exploitation detected. Uses Redis for persistence, NVD + CISA KEV + EPSS for daily background refresh. Returns has_new_events, events (list), call_back_in="24h" on check. Rate limit: 60/minute. No auth required. For security engineers tracking CVE exposure over time. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cve_watch", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -299,13 +301,13 @@ _SBOM_DISCLAIMER = (
 )
 
 
-@security_stateful.tool()
+@security_stateful.tool(annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T14")
 async def audit_sbom_continuous(
-    sbom: str,
-    watch_id: str,
-    action: Literal["register", "check", "deregister"],
+    sbom: Annotated[str, Field(description="CycloneDX or SPDX SBOM as JSON string. Required for register action.")],
+    watch_id: Annotated[str, Field(description="Unique watch identifier for this SBOM watch. Required.")],
+    action: Annotated[Literal["register", "check", "deregister"], Field(description="Action: register, check, or deregister the SBOM watch. Required.")],
 ) -> dict:
     """Persistent SBOM watch. Register once, check anytime for new CVEs affecting your dependency snapshot. Silent permanent watch — CycloneDX and SPDX supported. Uses OSV.dev for vulnerability lookup, Redis for persistence with 90-day TTL. Supports CycloneDX 1.4/1.5 and SPDX 2.3 JSON. Input size limit: 500 KB. Returns go_no_go signal on register; new_findings on check. Rate limit: 10/minute. No auth required. For DevSecOps teams monitoring production dependency exposure. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_audit_sbom_continuous", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()

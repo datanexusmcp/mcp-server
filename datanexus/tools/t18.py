@@ -31,7 +31,9 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from typing import Annotated
 
+from pydantic import Field
 import httpx
 from fastmcp import FastMCP
 
@@ -175,14 +177,14 @@ def _parse_usaspending_result(result: dict) -> dict:
 # DATA TOOL 1 — search_contract_awards
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T18")
 async def search_contract_awards(
-    keyword: str,
-    agency: str = "",
-    date_from: str = "",
-    jurisdiction: str = "US",
+    keyword: Annotated[str, Field(description="Search terms describing the contract scope e.g. cybersecurity software. Required.")],
+    agency: Annotated[str, Field(description="Awarding agency name e.g. Department of Defense. Optional.")] = "",
+    date_from: Annotated[str, Field(description="Earliest award date ISO 8601 e.g. 2024-01-31. Optional.")] = "",
+    jurisdiction: Annotated[str, Field(description="Jurisdiction: US, EU, or UK. Default US. Optional.")] = "US",
 ) -> dict:
     """Search government contract awards by keyword, agency, and date range. Read-only. No side effects. Idempotent. keyword: Search terms describing the contract scope e.g. cybersecurity software. Required. agency: Awarding agency name e.g. Department of Defense. Optional, defaults to all agencies. date_from: Earliest award date in ISO 8601 format e.g. 2024-01-31. Optional, defaults to all dates. jurisdiction: One of US, EU, or UK. Optional. Default US. Returns award amounts, recipient vendors, NAICS codes, and award dates. Use this when exploring the competitive landscape for a topic area. Use govcon_fetch_vendor_contract_history instead when you need all contracts for a specific vendor. Use govcon_fetch_open_solicitations instead when you need active bids not past awards. Verified source: USASpending.gov + SAM.gov. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="govcon_search_contract_awards", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -371,12 +373,12 @@ async def search_contract_awards(
 # DATA TOOL 2 — fetch_vendor_contract_history
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T18")
 async def fetch_vendor_contract_history(
-    vendor_name: str,
-    jurisdiction: str = "US",
+    vendor_name: Annotated[str, Field(description="Vendor or company name to search e.g. Booz Allen Hamilton. Required.")],
+    jurisdiction: Annotated[str, Field(description="Jurisdiction: US, EU, or UK. Default US. Optional.")] = "US",
 ) -> dict:
     """Fetch the complete federal contract award history for a specific vendor. Read-only. No side effects. Idempotent. vendor_name: Company or organisation name e.g. Booz Allen Hamilton. Required. Fuzzy match used. jurisdiction: One of US, EU, or UK. Optional. Default US. Returns total award value, top awarding agencies, contract types, and recent awards with amounts and dates. Use this when researching a specific company's government contracting history. Use govcon_search_contract_awards instead when exploring a topic area without a specific vendor. Verified source: USASpending.gov. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="govcon_fetch_vendor_contract_history", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -519,13 +521,13 @@ No contract history found for this vendor in {juris_clean}.
 # DATA TOOL 3 — fetch_open_solicitations
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T18")
 async def fetch_open_solicitations(
-    keyword: str,
-    agency: str = "",
-    jurisdiction: str = "US",
+    keyword: Annotated[str, Field(description="Description of goods or services sought e.g. cloud computing. Required.")],
+    agency: Annotated[str, Field(description="Awarding agency name. Optional, defaults to all agencies.")] = "",
+    jurisdiction: Annotated[str, Field(description="Jurisdiction: US, EU, or UK. Default US. Optional.")] = "US",
 ) -> dict:
     """Fetch currently open government contract solicitations matching a keyword. Read-only. No side effects. Idempotent. keyword: Description of goods or services sought e.g. cloud computing services. Required. Encode special characters — + becomes %2B. agency: Awarding agency name. Optional, defaults to all agencies. jurisdiction: One of US, EU, or UK. Optional. Default US. Returns solicitation title, agency, response deadline, estimated value, and NAICS code. Use this when looking for active bid opportunities. Use govcon_search_contract_awards instead when you need historical awards not open solicitations. Verified source: SAM.gov + USASpending.gov. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="govcon_fetch_open_solicitations", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()

@@ -12,7 +12,9 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 from urllib.parse import quote
 
 import httpx
@@ -64,12 +66,12 @@ _CVE_WATCH_PREFIX = "dn:cve_watch:"
 # TOOL 1 — audit_sbom_license_policy
 # ══════════════════════════════════════════════════════════════════════════════
 
-@t10_sprint8.tool()
+@t10_sprint8.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
 async def audit_sbom_license_policy(
-    sbom: str,
-    policy: Optional[dict] = None,
+    sbom: Annotated[str, Field(description="CycloneDX or SPDX SBOM as JSON string. Required. 500 KB max.")],
+    policy: Annotated[Optional[dict], Field(description="Policy dict with block/warn/allow arrays of SPDX licence IDs. Optional.")] = None,
 ) -> dict:
     """Audit a CycloneDX or SPDX SBOM against an SPDX licence policy and return a PASS/WARN/BLOCK verdict. sbom: Full SBOM as a JSON string — CycloneDX or SPDX format. Required. 500 KB max. policy: Optional dict with block/warn/allow arrays of exact SPDX licence identifiers (e.g. GPL-3.0, MIT). Defaults to block GPL-3.0 and AGPL-3.0, warn LGPL-2.1/MPL-2.0/BSD-4-Clause, allow MIT/Apache-2.0/BSD-2-Clause/BSD-3-Clause. No glob patterns — exact SPDX IDs only. Unlisted licences default to WARN. Returns verdict (PASS/WARN/BLOCK), blocked_packages, warned_packages, and the policy applied. Use security_audit_sbom_vulnerabilities for CVE auditing instead. Sources: deps.dev (Google). 1-hour cache per package. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_audit_sbom_license_policy", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -194,11 +196,11 @@ async def audit_sbom_license_policy(
 # TOOL 2 — fetch_cve_watch_status
 # ══════════════════════════════════════════════════════════════════════════════
 
-@t10_sprint8.tool()
+@t10_sprint8.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
 async def fetch_cve_watch_status(
-    watch_ids: list,
+    watch_ids: Annotated[list, Field(description="List of watch IDs to check e.g. ['watch-1','watch-2']. Required.")],
 ) -> dict:
     """Check all specified CVE watches for new events since your last poll. Returns only watches with new events, making it efficient to run on a schedule. watch_ids: List of watch IDs to check — same IDs used when creating watches with security_fetch_cve_watch. Required. Uses a per-user cursor (last_polled timestamp) stored in Redis. First call returns events from the last 30 days. Subsequent calls return only events newer than the last poll. Sources: Redis (existing watch data written by security_fetch_cve_watch). No external API calls — instant response. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cve_watch_status", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()

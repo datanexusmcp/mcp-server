@@ -24,7 +24,9 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 from urllib.parse import quote
 
 # Sprint 4 additions
@@ -111,14 +113,14 @@ _DEPS_SYSTEM: dict[str, str] = {
 # DATA TOOL 1 — fetch_package_vulnerabilities
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
 async def fetch_package_vulnerabilities(
-    package: Optional[str] = None,
-    version: Optional[str] = None,
-    ecosystem: Optional[str] = None,
-    packages: Optional[list] = None,
+    package: Annotated[Optional[str], Field(description="Package name e.g. requests. Required in single-package mode.")] = None,
+    version: Annotated[Optional[str], Field(description="Package version e.g. 2.28.0. Required in single-package mode.")] = None,
+    ecosystem: Annotated[Optional[str], Field(description="Package ecosystem: npm, pypi, cargo, go, maven, nuget. Required.")] = None,
+    packages: Annotated[Optional[list], Field(description="Batch list of {name, version, ecosystem} objects. Max 50.")] = None,
 ) -> dict:
     """Fetch all known CVEs for an open source package version or a batch of packages. Read-only. No side effects. Idempotent. Single-package mode: package (e.g. requests), version (e.g. 2.28.0), ecosystem (PyPI/npm/Maven/Go/Cargo/NuGet/RubyGems). Batch mode: packages array of {name, version, ecosystem} objects — max 50 per call. If packages array is provided and non-empty, batch mode is used and package/version/ecosystem are ignored. Batch returns {results: [...], partial: bool, failed_count: int}. Each result has vuln_count and vulnerabilities list. Returns CVE ID, severity, CVSS score, affected range, and fixed version. Use security_fetch_cve_detail for full detail by CVE ID. Use security_audit_sbom_vulnerabilities for SBOM files. Verified source: Google OSV.dev. 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_package_vulnerabilities", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -401,13 +403,13 @@ async def fetch_package_vulnerabilities(
 # DATA TOOL 2 — fetch_dependency_graph
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
 async def fetch_dependency_graph(
-    package: str,
-    version: str,
-    ecosystem: str,
+    package: Annotated[str, Field(description="Package name e.g. requests. Required.")],
+    version: Annotated[str, Field(description="Package version e.g. 2.28.0. Required.")],
+    ecosystem: Annotated[str, Field(description="Package ecosystem: npm, pypi, cargo, go, maven, nuget. Required.")],
 ) -> dict:
     """Fetch the full dependency tree for a package version including transitive dependencies. Read-only. No side effects. Idempotent. Hard 8-second timeout — large dependency trees may return partial results. package: Package name. Required. version: Exact version string e.g. 1.2.3. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns all direct and transitive dependencies with version constraints. Use this to understand full supply chain exposure. Use security_fetch_package_vulnerabilities instead when you only need CVEs for a single package. Verified source: deps.dev (Google). 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_dependency_graph", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -579,10 +581,10 @@ async def fetch_dependency_graph(
 # DATA TOOL 3 — fetch_cve_detail
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
-async def fetch_cve_detail(cve_id: str) -> dict:
+async def fetch_cve_detail(cve_id: Annotated[str, Field(description="CVE identifier e.g. CVE-2021-44228. Required.")]) -> dict:
     """Fetch full detail for a specific CVE by ID. Read-only. No side effects. Idempotent. cve_id: CVE identifier in format CVE-YYYY-NNNNN e.g. CVE-2021-44228. Required. Returns description, CVSS base score, affected products, patch references, and publish date. Use this when you have a CVE ID and need complete detail beyond what a package scan returns. Use security_fetch_package_vulnerabilities instead when you want all CVEs for a package version. Verified source: NIST NVD. 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cve_detail", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -783,10 +785,10 @@ async def fetch_cve_detail(cve_id: str) -> dict:
 # DATA TOOL 4 — audit_sbom_vulnerabilities
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
-async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
+async def audit_sbom_vulnerabilities(sbom_json: Annotated[str, Field(description="CycloneDX or SPDX SBOM as JSON string. Required.")]) -> dict:
     """Audit a Software Bill of Materials for known vulnerabilities across all listed packages. Read-only. No side effects. Idempotent. sbom_json: CycloneDX or SPDX SBOM as a JSON string. Required. Large SBOMs (100+ packages) may take up to 10 seconds. Returns CVEs grouped by package with severity and fixed versions. Use this when you have a full SBOM to audit. Use security_fetch_package_vulnerabilities instead when checking a single package version. Verified source: Google OSV.dev batch API. 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_audit_sbom_vulnerabilities", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -927,13 +929,13 @@ async def audit_sbom_vulnerabilities(sbom_json: str) -> dict:
 # DATA TOOL 5 — fetch_package_licence
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
 async def fetch_package_licence(
-    package: str,
-    version: str,
-    ecosystem: str,
+    package: Annotated[str, Field(description="Package name e.g. requests. Required.")],
+    version: Annotated[str, Field(description="Package version e.g. 2.28.0. Required.")],
+    ecosystem: Annotated[str, Field(description="Package ecosystem: npm, pypi, cargo, go, maven, nuget. Required.")],
 ) -> dict:
     """Fetch the SPDX licence identifier for an open source package version. Read-only. No side effects. Idempotent. package: Package name e.g. flask. Required. version: Exact version string e.g. 2.3.0. Required. ecosystem: One of PyPI, npm, Maven, Go, Cargo, NuGet, RubyGems. Required. Returns the SPDX licence identifier e.g. MIT, Apache-2.0, GPL-3.0. Use this to verify licence compatibility before including a dependency. Use security_fetch_package_vulnerabilities instead when checking for security issues not licences. Verified source: deps.dev (Google). 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_package_licence", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -1075,10 +1077,10 @@ async def fetch_package_licence(
 # DATA TOOL 6 — fetch_cisa_kev  (Sprint 4)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
-async def fetch_cisa_kev(cve_id: str) -> dict:
+async def fetch_cisa_kev(cve_id: Annotated[str, Field(description="CVE identifier e.g. CVE-2021-44228. Required.")]) -> dict:
     """Check whether a CVE is in the CISA Known Exploited Vulnerabilities (KEV) catalog. Read-only. No side effects. Idempotent. cve_id: CVE identifier in format CVE-YYYY-NNNNN e.g. CVE-2021-44228. Required. Returns in_kev (bool), date_added, due_date, ransomware_use, and notes from the CISA KEV catalog. KEV status answers 'Is this being actively exploited?' — a critical triage question not available in NIST NVD. Verified source: CISA KEV catalog (updated daily, cached). Use security_fetch_cve_detail for full CVE severity. Use security_fetch_cve_epss for exploit probability. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cisa_kev", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -1249,10 +1251,10 @@ async def fetch_cisa_kev(cve_id: str) -> dict:
 # DATA TOOL 7 — fetch_cve_epss  (Sprint 4)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
-async def fetch_cve_epss(cve_id: str) -> dict:
+async def fetch_cve_epss(cve_id: Annotated[str, Field(description="CVE identifier e.g. CVE-2021-44228. Required.")]) -> dict:
     """EPSS (Exploit Prediction Scoring System) is a probability score (0.0–1.0) predicting the likelihood a CVE will be exploited in the wild within the next 30 days — CVSS measures severity, EPSS measures urgency. Read-only. No side effects. Idempotent. cve_id: CVE identifier in format CVE-YYYY-NNNNN e.g. CVE-2021-44228. Required. Returns epss (float 0.0–1.0) and percentile (float 0.0–100.0). Score thresholds: >0.7 = high risk (patch immediately), 0.3–0.7 = medium risk (patch soon), <0.3 = low risk (monitor). Example: security_fetch_cve_epss(cve_id="CVE-2021-44228") → epss: 0.975, percentile: 99.7 (Log4Shell — extremely high exploitation likelihood). Use alongside security_fetch_cve_detail for prioritizing which vulnerabilities to patch first — a CVE with CVSS 9.8 but EPSS 0.02 is theoretical risk; CVSS 7.5 with EPSS 0.94 needs immediate action. Verified source: FIRST.org EPSS API. 6-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cve_epss", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False

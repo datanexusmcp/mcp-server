@@ -30,7 +30,9 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 import httpx
 from fastmcp import FastMCP
@@ -378,10 +380,10 @@ def _source_limitation(reason: str) -> str:
 # DATA TOOL 1 — fetch_patent_by_number
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T11")
-async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -> dict:
+async def fetch_patent_by_number(patent_number: Annotated[str, Field(description="Patent number e.g. EP3456789 or US10123456. Required.")], jurisdiction: Annotated[str, Field(description="Patent office code: EP, US, WO. Default EP. Optional.")] = "EP") -> dict:
     """Fetch full patent details by patent number and jurisdiction. Read-only. No side effects. Idempotent. patent_number: Patent number in EPODOC format e.g. EP1000000 for European, CN120586032 for Chinese, JP2020123456 for Japanese, WO2020123456 for PCT, US10000000 for US. Required. jurisdiction: Optional hint — one of EP, CN, JP, KR, US, WO, etc. Default EP. The tool normalises the patent number automatically; passing CN120586032 with jurisdiction EP is valid. Returns title, abstract, inventors, assignees, filing date, claims summary, and citation count. Use this when you have a specific patent number. Use legal_search_patents_by_keyword instead when you only have keywords and need to find patents. Verified source: EPO OPS. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="legal_fetch_patent_by_number", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -528,13 +530,13 @@ async def fetch_patent_by_number(patent_number: str, jurisdiction: str = "EP") -
 # DATA TOOL 2 — search_patents_by_keyword
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T11")
 async def search_patents_by_keyword(
-    keywords: str,
-    jurisdiction: str = "EP",
-    date_from: str = "",
+    keywords: Annotated[str, Field(description="Search keyword or phrase e.g. CRISPR gene editing. Required.")],
+    jurisdiction: Annotated[str, Field(description="Patent office code: EP, US, WO. Default EP. Optional.")] = "EP",
+    date_from: Annotated[str, Field(description="Earliest filing date ISO 8601 e.g. 2020-01-31. Optional.")] = "",
 ) -> dict:
     """Search patents by keyword across EPO, USPTO, or WIPO. Read-only. No side effects. Idempotent. Returns up to 10 matches. keywords: Search terms describing the invention e.g. neural network image classification. Required. jurisdiction: One of EP, US, or WO. Optional. Default EP. date_from: Earliest filing date in ISO 8601 format e.g. 2020-01-31. Optional, defaults to no lower bound. Returns patent numbers, titles, and filing dates. Use this when finding prior art or exploring a technology landscape without a specific number. Use legal_fetch_patent_by_number instead when you have the patent number already. Verified source: EPO OPS + USPTO. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="legal_search_patents_by_keyword", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -694,12 +696,12 @@ async def search_patents_by_keyword(
 # DATA TOOL 3 — fetch_patent_citations
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T11")
 async def fetch_patent_citations(
-    patent_number: str,
-    jurisdiction: str = "EP",
+    patent_number: Annotated[str, Field(description="Patent number e.g. EP3456789 or US10123456. Required.")],
+    jurisdiction: Annotated[str, Field(description="Patent office code: EP, US, WO. Default EP. Optional.")] = "EP",
 ) -> dict:
     """Fetch forward and backward citation chains for a specific patent. Read-only. No side effects. Idempotent. patent_number: Patent number in EPODOC format e.g. EP1000000 for European, CN120586032 for Chinese, JP2020123456 for Japanese, WO2020123456 for PCT, US10000000 for US. Required. jurisdiction: Optional hint — one of EP, US, WO, CN, JP, KR, etc. Default EP. The tool normalises the patent number automatically; passing CN120586032 with jurisdiction EP is valid. Returns citing patents (forward citations) and cited patents (backward citations) with filing dates and titles. Use this when building a prior art citation chain for a specific patent you already have. Use legal_search_patents_by_keyword instead when you need to find patents by topic not by citation. Verified source: EPO OPS. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="legal_fetch_patent_citations", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -871,12 +873,12 @@ async def fetch_patent_citations(
 # DATA TOOL 4 — fetch_inventor_portfolio
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T11")
 async def fetch_inventor_portfolio(
-    inventor_name: str,
-    assignee: str = "",
+    inventor_name: Annotated[str, Field(description="Inventor surname or full name e.g. John Smith. Required.")],
+    assignee: Annotated[str, Field(description="Company name to filter results e.g. Apple Inc. Optional.")] = "",
 ) -> dict:
     """Fetch the patent portfolio for a named inventor with optional assignee filter. Read-only. No side effects. Idempotent. inventor_name: Inventor surname or full name e.g. Smith or John Smith. Required. Fuzzy match — common names may return many results. assignee: Company or organisation name to narrow results e.g. Apple Inc. Optional. Returns patent numbers, titles, filing dates, jurisdictions, and current status. Use this when researching an inventor's work or a company's patent portfolio. Use legal_search_patents_by_keyword instead when you need patents by topic not by inventor. Verified source: EPO OPS + USPTO. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="legal_fetch_inventor_portfolio", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()

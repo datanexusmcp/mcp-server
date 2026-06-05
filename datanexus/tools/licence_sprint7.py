@@ -16,7 +16,9 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 import httpx
 import pybreaker
@@ -52,10 +54,10 @@ _DISCLAIMER = (
 # TOOL 1 — fetch_licence_analysis
 # ══════════════════════════════════════════════════════════════════════════════
 
-@licence_sprint7.tool()
+@licence_sprint7.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
-async def fetch_licence_analysis(spdx_id: str) -> dict:
+async def fetch_licence_analysis(spdx_id: Annotated[str, Field(description="SPDX licence identifier e.g. MIT, Apache-2.0, GPL-3.0. Required.")]) -> dict:
     """Understand any software licence in plain English. Returns obligations, permissions, limitations, risk level, and OSI/FSF status for any SPDX licence identifier. Static bundle covers top-50 common licences (no network call). Falls back to spdx.org API for rare identifiers. All risk levels assume proprietary/commercial use. Rate limit: 60/minute. No auth required. For security engineers and developers understanding what a licence allows before including a dependency. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_licence_analysis", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -266,12 +268,12 @@ def _build_plain_english(spdx_id: str, risk_level: str, raw: dict) -> tuple[str,
 # TOOL 2 — audit_licence_compatibility
 # ══════════════════════════════════════════════════════════════════════════════
 
-@licence_sprint7.tool()
+@licence_sprint7.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
 async def audit_licence_compatibility(
-    packages: Optional[list] = None,
-    spdx_ids: Optional[list] = None,
+    packages: Annotated[Optional[list], Field(description="List of {name, ecosystem} dicts to check compatibility. Optional.")] = None,
+    spdx_ids: Annotated[Optional[list], Field(description="List of SPDX licence identifiers to check compatibility. Optional.")] = None,
 ) -> dict:
     """Audit the licence compatibility of your entire dependency list. Input package names (with ecosystem) or SPDX IDs; get a COMPATIBLE/CONFLICT verdict with specific conflicting pairs and recommended action. Uses static SPDX compatibility table — no network call for spdx_ids path. Package path resolves licences from deps.dev (max 10 concurrent). Max 50 items. Rate limit: 60/minute. No auth required. For developers and compliance teams auditing open source licence risk before shipping. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_audit_licence_compatibility", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()

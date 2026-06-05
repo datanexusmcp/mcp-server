@@ -23,7 +23,9 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 from urllib.parse import urlparse
 
 import pybreaker
@@ -183,10 +185,10 @@ def _build_tldr(verdict: str, kev_listed: Optional[bool], cvss_score: Optional[f
 # TOOL 3 — fetch_cve_risk_summary
 # ══════════════════════════════════════════════════════════════════════════════
 
-@cve_sprint7.tool()
+@cve_sprint7.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
-async def fetch_cve_risk_summary(cve_id: str) -> dict:
+async def fetch_cve_risk_summary(cve_id: Annotated[str, Field(description="CVE identifier e.g. CVE-2021-44228. Required.")]) -> dict:
     """Instant CVE risk verdict. Combines CVSS severity, CISA KEV exploitation status, and EPSS probability in one parallel call. Returns CRITICAL_EXPLOIT, HIGH_RISK, MODERATE, LOW, or UNKNOWN verdict with patch availability from vendor advisories. UNKNOWN means all upstream sources were unreachable — not that risk is low. Rate limit: 60/minute. No auth required. For security engineers triaging vulnerabilities after fetch_cve_watch fires. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cve_risk_summary", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False

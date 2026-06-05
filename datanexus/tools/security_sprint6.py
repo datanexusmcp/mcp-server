@@ -14,7 +14,9 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
+
+from pydantic import Field
 
 import pybreaker
 from fastmcp import FastMCP
@@ -51,12 +53,12 @@ _DISCLAIMER = (
 # TOOL 1 — fetch_package_maintainer_history
 # ══════════════════════════════════════════════════════════════════════════════
 
-@security_sprint6.tool()
+@security_sprint6.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T10")
 async def fetch_package_maintainer_history(
-    package_name: str,
-    ecosystem: Literal["npm", "pypi", "cargo", "go"],
+    package_name: Annotated[str, Field(description="Package name e.g. requests. Required.")],
+    ecosystem: Annotated[Literal["npm", "pypi", "cargo", "go"], Field(description="Package ecosystem: npm, pypi, cargo, go. Required.")],
 ) -> dict:
     """Analyse ownership and release history for an npm or PyPI package to detect supply-chain risk. Uses PyPI JSON API and npm registry — data refreshed on each call, 1-hour cache. Returns maintainer_count, recent_changes, ownership_transfers, account_ages, anomaly_score (0.0–1.0), and maintainer_health (healthy | stale | abandoned | suspicious). Rate limit: 60/minute. No auth required. For security engineers auditing open-source dependencies before inclusion in production builds. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_package_maintainer_history", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -194,13 +196,13 @@ def _build_maintainer_markdown(result: dict, package: str, ecosystem: str) -> st
 # TOOL 2 — fetch_package_risk_brief
 # ══════════════════════════════════════════════════════════════════════════════
 
-@security_sprint6.tool()
+@security_sprint6.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T11")
 async def fetch_package_risk_brief(
-    package_name: str,
-    ecosystem: Literal["npm", "pypi", "go", "cargo", "maven"],
-    version: Optional[str] = None,
+    package_name: Annotated[str, Field(description="Package name e.g. requests. Required.")],
+    ecosystem: Annotated[Literal["npm", "pypi", "go", "cargo", "maven"], Field(description="Package ecosystem: npm, pypi, cargo, go, maven. Required.")],
+    version: Annotated[Optional[str], Field(description="Package version e.g. 2.28.0. Required.")] = None,
 ) -> dict:
     """Single SHIP/CAUTION/BLOCK verdict for any package. Combines CVEs, licence, maintainer health, and transitive count in one call. Uses OSV.dev, deps.dev, PyPI, and npm registry — data refreshed on each call. Returns verdict (SHIP/CAUTION/BLOCK), critical_cve_count, high_cve_count, licence_risk, maintainer_health, transitive_count, resolved_version, upstream_status, and reasoning. Rate limit: 30/minute. No auth required. For security engineers performing pre-inclusion package review. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_package_risk_brief", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -397,12 +399,12 @@ _TYPO_COLD_TIMEOUT = 30.0                      # cold-start fetch hard cap
 _TYPO_WARN_TIMEOUT = 10.0                      # log warning if slower
 _MIN_REF_SIZE  = 10_000                        # refuse partial comparisons
 
-@security_sprint6.tool()
+@security_sprint6.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T15")
 async def detect_typosquatting(
-    package_name: str,
-    ecosystem: Literal["npm", "pypi", "cargo", "go"],
+    package_name: Annotated[str, Field(description="Package name e.g. requests. Required.")],
+    ecosystem: Annotated[Literal["npm", "pypi", "cargo", "go"], Field(description="Package ecosystem: npm, pypi, cargo, go. Required.")],
 ) -> dict:
     """Detect typosquatting attacks against a package name. Compares using Damerau-Levenshtein distance ≤ 2 against top-10,000 packages. Returns similar_packages with anomaly scores, and a SUSPICIOUS or CLEAN verdict. Uses PyPI and npm download stats stored in Redis. Cold-start fetch on first call (≤ 30s). Rate limit: 60/minute. No auth required. For security engineers auditing supply-chain package names before inclusion. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_detect_typosquatting", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()

@@ -31,7 +31,9 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 import httpx
 from fastmcp import FastMCP
@@ -127,10 +129,10 @@ def _incr_calls(tool_id: str) -> None:
 # DATA TOOL 1 — fetch_npi_provider
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T22")
-async def fetch_npi_provider(npi_number: str) -> dict:
+async def fetch_npi_provider(npi_number: Annotated[str, Field(description="10-digit NPI number e.g. 1003000126. No dashes. Required.")]) -> dict:
     """Fetch NPI registration details for a US healthcare provider by NPI number. Read-only. No side effects. Idempotent. US only. npi_number: 10-digit NPI number e.g. 1003000126. Required. Do not include dashes or spaces. Returns provider name, credential type, speciality taxonomy, practice address, and active status. Use this when you have the exact 10-digit NPI. Use compliance_search_npi_by_name instead when you only have the provider name. Verified source: NPPES NPI Registry (CMS). 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="compliance_fetch_npi_provider", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -259,13 +261,13 @@ async def fetch_npi_provider(npi_number: str) -> dict:
 # DATA TOOL 2 — search_npi_by_name
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T22")
 async def search_npi_by_name(
-    name: str,
-    state: str = "",
-    speciality: str = "",
+    name: Annotated[str, Field(description="Full or partial provider name. Required.")],
+    state: Annotated[str, Field(description="Two-letter US state code e.g. CA. Optional.")] = "",
+    speciality: Annotated[str, Field(description="Speciality keyword e.g. Cardiology. Optional.")] = "",
 ) -> dict:
     """Search the NPPES NPI Registry by provider name with optional state and speciality filters. Read-only. No side effects. Idempotent. US only. Returns up to 10 matches. name: Full or partial provider name. Required. state: Two-letter US state code e.g. CA. Optional. speciality: Speciality keyword e.g. Cardiology. Optional. Returns NPI number, name, speciality, and address for each match. Use this when you do not have the NPI number. Use compliance_fetch_npi_provider instead when you have the exact 10-digit NPI. Verified source: NPPES NPI Registry (CMS). 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="compliance_search_npi_by_name", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
@@ -373,10 +375,10 @@ async def search_npi_by_name(
 # DATA TOOL 3 — fetch_finra_broker
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T22")
-async def fetch_finra_broker(crd_number: str) -> dict:
+async def fetch_finra_broker(crd_number: Annotated[str, Field(description="FINRA CRD number e.g. 149777. Required.")]) -> dict:
     """Fetch FINRA BrokerCheck registration for a US broker or investment adviser by CRD number. Read-only. No side effects. Idempotent. US only. crd_number: Central Registration Depository number as a string of digits e.g. 1234567. Required. CRD number only — name lookup is not supported. Returns registration status, qualifications, disclosure history, and employment history. Use this when you have the CRD number. Use compliance_search_npi_by_name instead for healthcare providers, not financial advisers. Verified source: FINRA BrokerCheck. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="compliance_fetch_finra_broker", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -538,10 +540,10 @@ async def fetch_finra_broker(crd_number: str) -> dict:
 # DATA TOOL 4 — check_sam_exclusion
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T22")
-async def check_sam_exclusion(name_or_ein: str) -> dict:
+async def check_sam_exclusion(name_or_ein: Annotated[str, Field(description="Entity name or EIN to check SAM exclusions. Required.")]) -> dict:
     """Check whether an entity is on the US federal exclusions list (debarred from government contracts). Read-only. No side effects. Idempotent. US only. name_or_ein: Entity name or 9-digit EIN with or without dash e.g. Acme Corp or 13-1234567. Required. Name match is fuzzy — verify EIN for exact results. Returns excluded: true/false, exclusion type, and exclusion dates if found. Use this before awarding federal contracts or grants. Use govcon_search_contract_awards instead to find what contracts an entity has won. Verified source: SAM.gov. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="compliance_check_sam_exclusion", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False

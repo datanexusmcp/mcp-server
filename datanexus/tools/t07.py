@@ -28,7 +28,9 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 import httpx
 from fastmcp import FastMCP
@@ -138,10 +140,10 @@ def _incr_calls(tool_id: str) -> None:
 # DATA TOOL 1 — fetch_domain_rdap
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T07")
-async def fetch_domain_rdap(domain: str) -> dict:
+async def fetch_domain_rdap(domain: Annotated[str, Field(description="Domain without protocol e.g. example.com. Required.")]) -> dict:
     """Fetch domain registration details via IANA RDAP (the modern structured replacement for WHOIS). Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. example.com not https://example.com. Required. Returns registrar, registration date, expiry date, nameservers, and registrant info where publicly available. Use this when you need registration metadata. Use domain_fetch_ssl_certificate_chain instead when you need certificate history. Use domain_fetch_dns_records instead when you need live DNS resolution. Verified source: IANA RDAP. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_fetch_domain_rdap", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -269,10 +271,10 @@ async def fetch_domain_rdap(domain: str) -> dict:
 # DATA TOOL 2 — fetch_ssl_certificate_chain
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T07")
-async def fetch_ssl_certificate_chain(domain: str) -> dict:
+async def fetch_ssl_certificate_chain(domain: Annotated[str, Field(description="Domain without protocol e.g. github.com. Required.")]) -> dict:
     """Fetch SSL certificate history for a domain from Certificate Transparency logs. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. github.com. Required. Does not support IP addresses or wildcard domains. Returns issuer, subject, validity period, and Subject Alternative Names for each logged cert. Use this to detect unexpected certificate issuance or audit certificate history. Use domain_fetch_domain_rdap instead when you need registration data not certificate data. Verified source: crt.sh Certificate Transparency. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_fetch_ssl_certificate_chain", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -403,10 +405,10 @@ async def fetch_ssl_certificate_chain(domain: str) -> dict:
 # DATA TOOL 3 — fetch_dns_records
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T07")
-async def fetch_dns_records(domain: str, record_types: list) -> dict:
+async def fetch_dns_records(domain: Annotated[str, Field(description="Domain without protocol e.g. anthropic.com. Required.")], record_types: Annotated[list, Field(description="DNS record types e.g. ['A','MX','TXT']. Optional.")]) -> dict:
     """Fetch current DNS records for a domain via Cloudflare DNS over HTTPS. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. cloudflare.com. Required. record_types: List of DNS record types to fetch. Required. Valid values: A, AAAA, MX, TXT, NS, CNAME, SOA. Example: ["A", "MX", "TXT"]. Returns all matching records currently in effect. Use this when you need live DNS resolution. Use domain_fetch_domain_rdap instead when you need registration metadata not DNS records. Verified source: Cloudflare DoH. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_fetch_dns_records", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -518,10 +520,10 @@ async def fetch_dns_records(domain: str, record_types: list) -> dict:
 # DATA TOOL 4 — fetch_domain_history
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T07")
-async def fetch_domain_history(domain: str) -> dict:
+async def fetch_domain_history(domain: Annotated[str, Field(description="Domain without protocol e.g. example.com. Required.")]) -> dict:
     """Fetch historical SSL certificate issuance for a domain from Certificate Transparency logs. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. example.com. Required. Returns all past certificates with issuer, validity dates, and SANs in reverse chronological order. Use this to detect domain hijacking or audit unexpected historical certificate issuance. Use domain_fetch_ssl_certificate_chain instead when you only need the current certificate chain. Verified source: crt.sh Certificate Transparency. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_fetch_domain_history", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -656,9 +658,9 @@ async def fetch_domain_history(domain: str) -> dict:
 # DATA TOOL 5 — fetch_subdomains  (Sprint 4)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @verify_entitlement("T07")
-async def fetch_subdomains(domain: str) -> dict:
+async def fetch_subdomains(domain: Annotated[str, Field(description="Domain without protocol e.g. anthropic.com. Required.")]) -> dict:
     """Enumerate subdomains for a domain via Certificate Transparency logs. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. anthropic.com. Required. Returns deduplicated list of known subdomains. Primary source: crt.sh Certificate Transparency (free). Fallback source: RapidDNS (free, passive CT + DNS) — used automatically when crt.sh is unavailable. Response includes source field indicating which source was used. Results are cached 24h — second call returns in under 500ms. First call may be slower (8s max per source). Circuit breaker trips after 3 timeouts or 5xx errors within 600s. Verified sources: crt.sh Certificate Transparency, RapidDNS. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_fetch_subdomains", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -841,10 +843,10 @@ async def fetch_subdomains(domain: str) -> dict:
 # DATA TOOL 6 — check_email_security  (Sprint 4)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T07")
-async def check_email_security(domain: str) -> dict:
+async def check_email_security(domain: Annotated[str, Field(description="Domain without protocol e.g. google.com. Required.")]) -> dict:
     """Checks whether a domain has properly configured email authentication (SPF, DMARC, DKIM) to prevent spoofing and phishing. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. google.com. Required. SPF (Sender Policy Framework): sender IP allowlist specifying which servers may send email for the domain — scored -all=10 (strict, recommended), ~all=7 (soft fail), ?all=4 (neutral), none=2 (no policy), +all=0 (open relay, insecure). DMARC (Domain-based Message Authentication): policy for failed auth — p=reject=10 (block), p=quarantine=7 (spam folder), p=none=4 (monitor only), absent=0; +1 bonus for rua reporting address set. DKIM (DomainKeys Identified Mail): cryptographic signature proving message integrity and sender authenticity — any selector found=10 (pass), none found=0 (fail). Returns scored assessment; each component scored 0–10; overall grade A–F. Example: domain_check_email_security(domain="google.com") → {overall_grade, spf_score, dmarc_score, dkim_score, spf_record, dmarc_record, dkim_selectors_found}; grade reflects live DNS at query time. Checks 10 common DKIM selectors in parallel. Verified source: Cloudflare DoH. No cache (live DNS). If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_check_email_security", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
@@ -993,10 +995,10 @@ async def check_email_security(domain: str) -> dict:
 # DATA TOOL 7 — fetch_reverse_ip  (Sprint 4)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool()
+@mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T07")
-async def fetch_reverse_ip(domain_or_ip: str) -> dict:
+async def fetch_reverse_ip(domain_or_ip: Annotated[str, Field(description="Domain e.g. shared.dreamhost.com or IPv4 e.g. 1.2.3.4. Required.")]) -> dict:
     """Find domains co-hosted on the same IP address (reverse IP lookup). Read-only. No side effects. Idempotent. domain_or_ip: Domain name (e.g. shared.dreamhost.com) or IPv4 address (e.g. 1.2.3.4). Required. If a domain is given, it is first resolved to its IPv4 A record. IPv6-only domains are not supported. Returns list of co-hosted domains on the same IP. Useful for identifying shared hosting risk and mapping corporate infrastructure. Daily quota guard: 100 calls/day free tier. Verified source: HackerTarget API. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_fetch_reverse_ip", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
