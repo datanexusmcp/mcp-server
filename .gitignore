@@ -29,3 +29,19 @@ npm-debug.log*
 
 # Audit reports (generated artefacts)
 *_audit.docx
+DATANEXUS_CONTEXT*.md
+SPRINT*.md
+SESSION_STARTER.md
+TODOS.md
+CADDY_ACCESS_LOG_PROMPT.md
+GLAMA_SCORE_PROMPT.md
+POSTHOG_PROMPT.md
+USAGE_INSTRUMENTATION_PROMPT.md
+*.PROMPT.md
+.gstack/
+glama_score_*.txt
+scripts/
+specs/
+datanexus/scripts/
+datanexus/tests/
+.secrets.baseline
