@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — DataNexus MCP</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #080c10; --surface: #0d1117; --border: #1e2733;
+      --cyan: #00d4ff; --text: #c9d1d9; --muted: #6e8098;
+      --mono: 'Courier New', Courier, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 16px; line-height: 1.7; }
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(8,12,16,0.92); backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px; height: 56px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-logo { font-family: var(--mono); font-size: 15px; font-weight: bold; color: var(--cyan); text-decoration: none; }
+    .nav-back { color: var(--muted); text-decoration: none; font-size: 14px; }
+    .nav-back:hover { color: var(--text); }
+    .content { max-width: 720px; margin: 0 auto; padding: 64px 24px 80px; }
+    .page-tag { font-family: var(--mono); font-size: 11px; color: var(--cyan); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 16px; }
+    h1 { font-size: 36px; font-weight: 800; color: #e6edf3; margin-bottom: 12px; }
+    .updated { font-size: 13px; color: var(--muted); margin-bottom: 48px; }
+    h2 { font-size: 20px; font-weight: 700; color: #e6edf3; margin: 40px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+    p { margin-bottom: 16px; color: var(--text); }
+    ul { margin: 0 0 16px 24px; }
+    li { margin-bottom: 8px; color: var(--text); }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .highlight { background: rgba(0,212,255,0.06); border-left: 3px solid var(--cyan); padding: 16px 20px; border-radius: 0 4px 4px 0; margin: 24px 0; }
+    footer { border-top: 1px solid var(--border); padding: 32px 24px; text-align: center; }
+    .footer-links { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; }
+    .footer-links a { color: var(--muted); text-decoration: none; font-size: 14px; }
+    .footer-links a:hover { color: var(--text); }
+    .footer-copy { font-size: 13px; color: var(--muted); margin-top: 12px; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">DATANEXUS_MCP</a>
+  <a href="/" class="nav-back">← Back to home</a>
+</nav>
+
+<div class="content">
+  <p class="page-tag">Legal</p>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: June 2026</p>
+
+  <div class="highlight">
+    <strong>Short version:</strong> We collect minimal data to operate the service. We do not sell it. We keep it for 90 days.
+  </div>
+
+  <h2>1. What we collect</h2>
+  <p>When you use DataNexus MCP, we collect:</p>
+  <ul>
+    <li><strong>IP address</strong> — the IP address of your client or agent making tool calls</li>
+    <li><strong>Tool call inputs</strong> — the parameters you pass to each tool (e.g., a company EIN, a CVE ID, a domain name)</li>
+    <li><strong>Timestamps</strong> — when each tool call occurred</li>
+    <li><strong>Tool name</strong> — which tool was called</li>
+    <li><strong>Latency and success/failure status</strong> — for service reliability monitoring</li>
+    <li><strong>Session identifier</strong> — a randomly generated ID tied to a connection session, not to a person</li>
+  </ul>
+  <p>We do <strong>not</strong> collect your name, email address, or any account information unless you voluntarily sign up for an API key at <a href="/signup">/signup</a>.</p>
+
+  <h2>2. Why we collect it</h2>
+  <ul>
+    <li><strong>Service delivery</strong> — to route and execute your tool requests</li>
+    <li><strong>Abuse prevention</strong> — to detect and block automated scanners, bots, and bad actors</li>
+    <li><strong>Analytics</strong> — to understand which tools are used, identify bugs, and improve the service</li>
+    <li><strong>Reliability</strong> — to monitor uptime, latency, and error rates</li>
+  </ul>
+
+  <h2>3. Data retention</h2>
+  <p>Tool call logs are retained for <strong>90 days</strong>, then automatically deleted. Aggregated, anonymized statistics (e.g., "100 calls were made to tool X in May") may be retained indefinitely.</p>
+
+  <h2>4. Data sharing</h2>
+  <p>We do <strong>not sell</strong> your data to third parties.</p>
+  <p>We use the following third-party services which may receive limited data:</p>
+  <ul>
+    <li><strong>Hetzner Online</strong> — cloud infrastructure provider (EU data center)</li>
+    <li><strong>PostHog</strong> — anonymized analytics (EU cloud, events contain tool name and session ID only)</li>
+    <li><strong>Cloudflare</strong> — DNS resolution (does not proxy traffic for this domain)</li>
+  </ul>
+  <p>We may disclose data if required by law or to protect the security of the service.</p>
+
+  <h2>5. Cookies and tracking</h2>
+  <p>The DataNexus MCP <strong>API endpoint</strong> sets no cookies and performs no browser tracking. This homepage (<code>datanexusmcp.com</code>) also sets no cookies and loads no third-party trackers.</p>
+
+  <h2>6. API key holders</h2>
+  <p>If you sign up for an API key, we additionally collect your email address. This is used solely to send service-related communications (e.g., usage alerts, API key delivery). We do not send marketing email without your explicit consent.</p>
+
+  <h2>7. Your rights</h2>
+  <p>You may request deletion of any data associated with your IP address or API key by emailing <a href="mailto:support@datanexusmcp.com">support@datanexusmcp.com</a>. We will respond within 30 days.</p>
+
+  <h2>8. Security</h2>
+  <p>Data is stored in a PostgreSQL database on a private Hetzner server. Access is restricted to the DataNexus MCP service and operator. TLS is enforced for all connections via Caddy.</p>
+
+  <h2>9. Changes to this policy</h2>
+  <p>We may update this policy as the service evolves. Material changes will be noted at the top of this page with an updated date.</p>
+
+  <h2>10. Contact</h2>
+  <p>Questions? Email <a href="mailto:support@datanexusmcp.com">support@datanexusmcp.com</a>.</p>
+</div>
+
+<footer>
+  <div class="footer-links">
+    <a href="/">Home</a>
+    <a href="/docs">Documentation</a>
+    <a href="mailto:support@datanexusmcp.com">Support</a>
+  </div>
+  <div class="footer-copy">© 2026 DataNexus MCP</div>
+</footer>
+
+</body>
+</html>

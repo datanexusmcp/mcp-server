@@ -22,7 +22,22 @@ datanexusmcp.com {
     respond 403
   }
 
-  # ── MCP server ─────────────────────────────────
+  # ── Static homepage, privacy, docs ────────────
+  root * /app/datanexus/static
+
+  handle / {
+    file_server
+  }
+
+  handle /privacy* {
+    file_server
+  }
+
+  handle /docs* {
+    file_server
+  }
+
+  # ── MCP server (all other routes) ─────────────
   handle {
     reverse_proxy datanexus-mcp:8000 {
       flush_interval -1

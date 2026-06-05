@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation — DataNexus MCP</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #080c10; --surface: #0d1117; --border: #1e2733; --border2: #243040;
+      --cyan: #00d4ff; --cyan-dim: #0099bb; --text: #c9d1d9; --muted: #6e8098;
+      --mono: 'Courier New', Courier, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 16px; line-height: 1.7; }
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(8,12,16,0.92); backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px; height: 56px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-logo { font-family: var(--mono); font-size: 15px; font-weight: bold; color: var(--cyan); text-decoration: none; }
+    .nav-back { color: var(--muted); text-decoration: none; font-size: 14px; }
+    .nav-back:hover { color: var(--text); }
+
+    .layout { display: flex; max-width: 1100px; margin: 0 auto; padding: 0 24px; gap: 48px; }
+
+    /* sidebar */
+    .sidebar {
+      width: 200px; flex-shrink: 0;
+      padding: 40px 0;
+      position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto;
+    }
+    .sidebar-group { margin-bottom: 28px; }
+    .sidebar-label { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+    .sidebar ul { list-style: none; }
+    .sidebar li a { display: block; font-size: 14px; color: var(--muted); text-decoration: none; padding: 4px 0; transition: color 0.12s; }
+    .sidebar li a:hover { color: var(--text); }
+
+    /* content */
+    .content { flex: 1; min-width: 0; padding: 48px 0 80px; }
+
+    .page-tag { font-family: var(--mono); font-size: 11px; color: var(--cyan); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 16px; }
+    h1 { font-size: 36px; font-weight: 800; color: #e6edf3; margin-bottom: 32px; }
+    h2 { font-size: 22px; font-weight: 700; color: #e6edf3; margin: 48px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); scroll-margin-top: 72px; }
+    h3 { font-size: 17px; font-weight: 600; color: #e6edf3; margin: 28px 0 10px; }
+    p { margin-bottom: 16px; color: var(--text); }
+    ul, ol { margin: 0 0 16px 24px; }
+    li { margin-bottom: 8px; color: var(--text); }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    code {
+      font-family: var(--mono); font-size: 13px;
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 1px 6px; border-radius: 3px; color: var(--cyan);
+    }
+    pre {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 20px 24px; overflow-x: auto;
+      margin: 16px 0 24px; font-family: var(--mono); font-size: 13px;
+      line-height: 1.6; color: var(--text);
+    }
+    pre code { background: none; border: none; padding: 0; font-size: inherit; color: inherit; }
+    .kw { color: var(--cyan); }
+    .str { color: #a5d6a7; }
+    .cmt { color: var(--muted); }
+    .num { color: #f48fb1; }
+
+    .callout {
+      background: rgba(0,212,255,0.06); border-left: 3px solid var(--cyan);
+      padding: 16px 20px; border-radius: 0 4px 4px 0; margin: 20px 0;
+    }
+    .callout strong { color: var(--cyan); }
+
+    .rate-table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 14px; }
+    .rate-table th { text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--border2); color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .rate-table td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+    .rate-table tr:last-child td { border-bottom: none; }
+
+    .tool-examples { display: grid; gap: 12px; }
+    .tool-ex { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px 20px; }
+    .tool-ex-name { font-family: var(--mono); font-size: 12px; color: var(--cyan); margin-bottom: 8px; }
+    .tool-ex-prompt { font-size: 14px; font-style: italic; color: var(--muted); }
+
+    footer { border-top: 1px solid var(--border); padding: 32px 24px; text-align: center; }
+    .footer-links { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; }
+    .footer-links a { color: var(--muted); text-decoration: none; font-size: 14px; }
+    .footer-links a:hover { color: var(--text); }
+    .footer-copy { font-size: 13px; color: var(--muted); margin-top: 12px; }
+
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .layout { flex-direction: column; padding: 0 16px; }
+      .content { padding: 32px 0 60px; }
+      h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">DATANEXUS_MCP</a>
+  <a href="/" class="nav-back">← Back to home</a>
+</nav>
+
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-label">Getting Started</div>
+      <ul>
+        <li><a href="#what-is">What is DataNexus</a></li>
+        <li><a href="#connect">Connect in Claude.ai</a></li>
+        <li><a href="#npm">npm / local use</a></li>
+        <li><a href="#api-key">API keys</a></li>
+      </ul>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-label">Tool Categories</div>
+      <ul>
+        <li><a href="#t04">T04 Nonprofit</a></li>
+        <li><a href="#t07">T07 Domain &amp; DNS</a></li>
+        <li><a href="#t10">T10 Security</a></li>
+        <li><a href="#t11">T11 Patents</a></li>
+        <li><a href="#t18">T18 GovCon</a></li>
+        <li><a href="#t19">T19 Regulatory</a></li>
+        <li><a href="#t22">T22 Compliance</a></li>
+      </ul>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-label">Reference</div>
+      <ul>
+        <li><a href="#rate-limits">Rate limits</a></li>
+        <li><a href="#errors">Error handling</a></li>
+      </ul>
+    </div>
+  </aside>
+
+  <main class="content">
+    <p class="page-tag">Documentation</p>
+    <h1>DataNexus MCP Docs</h1>
+
+    <!-- WHAT IS -->
+    <h2 id="what-is">What is DataNexus MCP?</h2>
+    <p>DataNexus MCP is a <strong>remote MCP server</strong> that gives AI agents structured access to public data. It exposes 55 tools across 7 categories — nonprofit intelligence, security &amp; CVE data, domain/DNS, patents, government contracts, regulatory filings, and compliance verification.</p>
+    <p>All tools return structured JSON from verified public sources (IRS, NVD, CISA, USPTO, SAM.gov, Regulations.gov, NPPES, FINRA, and more). No scraping, no hallucination — just the data.</p>
+    <p>The server is hosted at <code>https://datanexusmcp.com/mcp</code> and uses the <strong>Streamable HTTP</strong> transport. It works with any MCP client including Claude.ai, the Claude desktop app, and the Claude API via the Anthropic SDK.</p>
+
+    <!-- CONNECT IN CLAUDE.AI -->
+    <h2 id="connect">Connect in Claude.ai</h2>
+    <ol>
+      <li>Open <strong>Claude.ai</strong> and go to <strong>Settings → Connectors</strong> (or Integrations)</li>
+      <li>Click <strong>Add connector</strong> → <strong>Custom MCP</strong></li>
+      <li>Enter the server URL: <code>https://datanexusmcp.com/mcp</code></li>
+      <li>Optionally add your API key as header: <code>X-Api-Key: your-key-here</code></li>
+      <li>Click <strong>Connect</strong> — Claude will sync the 55 tools automatically</li>
+    </ol>
+    <p>Once connected, Claude will automatically call the right DataNexus tool based on what you ask. You don't need to reference tool names directly.</p>
+    <div class="callout">
+      <strong>Tip:</strong> After connecting, ask Claude <em>"What DataNexus tools are available?"</em> to see the full list and get suggested prompts.
+    </div>
+
+    <!-- NPM -->
+    <h2 id="npm">npm / local use</h2>
+    <p>Install the npm package to run DataNexus MCP locally or integrate it into your own MCP client:</p>
+    <pre><code>npm install -g @datanexusmcp/mcp-server</code></pre>
+    <p>Then add it to your MCP client config (e.g. <code>claude_desktop_config.json</code>):</p>
+    <pre><code>{
+  <span class="str">"mcpServers"</span>: {
+    <span class="str">"datanexus"</span>: {
+      <span class="str">"command"</span>: <span class="str">"npx"</span>,
+      <span class="str">"args"</span>: [<span class="str">"@datanexusmcp/mcp-server"</span>],
+      <span class="str">"env"</span>: {
+        <span class="str">"DATANEXUS_API_KEY"</span>: <span class="str">"your-key-here"</span>  <span class="cmt">// optional</span>
+      }
+    }
+  }
+}</code></pre>
+
+    <!-- API KEY -->
+    <h2 id="api-key">API keys</h2>
+    <p>DataNexus MCP works without an API key on the free tier (500 calls/month). To get higher limits or usage attribution, <a href="/signup">sign up for an API key</a>.</p>
+    <p>Pass the key as an HTTP header on every request:</p>
+    <pre><code><span class="kw">X-Api-Key:</span> your-key-here</code></pre>
+    <p>In Claude.ai, add this as a custom header when configuring the connector. With the npm package, set it as the <code>DATANEXUS_API_KEY</code> environment variable.</p>
+
+    <!-- T04 -->
+    <h2 id="t04">T04 — Nonprofit Intelligence</h2>
+    <p>Sources: IRS EO BMF, IRS TEOS e-File, ProPublica Nonprofit Explorer, UK Charity Commission.</p>
+    <div class="tool-examples">
+      <div class="tool-ex">
+        <div class="tool-ex-name">nonprofit_fetch_nonprofit_by_ein</div>
+        <div class="tool-ex-prompt">"Look up the nonprofit with EIN 46-5734087"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">nonprofit_search_nonprofits_by_name</div>
+        <div class="tool-ex-prompt">"Find nonprofits called 'Doctors Without Borders' in New York"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">nonprofit_fetch_charity_uk</div>
+        <div class="tool-ex-prompt">"Look up UK charity number 1089464"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">nonprofit_fetch_nonprofit_full_profile</div>
+        <div class="tool-ex-prompt">"Full due diligence on EIN 13-1837418 — financials, exec pay, health score"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">nonprofit_fetch_nonprofit_financial_trends</div>
+        <div class="tool-ex-prompt">"Show me 5-year financial trends for EIN 46-5734087"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">nonprofit_search_nonprofits_by_category</div>
+        <div class="tool-ex-prompt">"Find education nonprofits in California"</div>
+      </div>
+    </div>
+
+    <!-- T07 -->
+    <h2 id="t07">T07 — Domain &amp; DNS</h2>
+    <p>Sources: RDAP, crt.sh, SecurityTrails, DNS resolvers.</p>
+    <div class="tool-examples">
+      <div class="tool-ex">
+        <div class="tool-ex-name">domain_fetch_domain_rdap</div>
+        <div class="tool-ex-prompt">"Who owns example.com and when does it expire?"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">domain_fetch_ssl_certificate_chain</div>
+        <div class="tool-ex-prompt">"Show me the SSL certificate chain for datanexusmcp.com"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">domain_check_email_security</div>
+        <div class="tool-ex-prompt">"Does google.com have DMARC and DKIM configured?"</div>
+      </div>
+    </div>
+
+    <!-- T10 -->
+    <h2 id="t10">T10 — Security &amp; CVE</h2>
+    <p>Sources: NVD (NIST), CISA KEV, FIRST EPSS, OSV.dev, deps.dev.</p>
+    <div class="tool-examples">
+      <div class="tool-ex">
+        <div class="tool-ex-name">security_fetch_cve_risk_summary</div>
+        <div class="tool-ex-prompt">"What's the full risk picture for CVE-2021-44228 (Log4Shell)?"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">security_fetch_package_vulnerabilities</div>
+        <div class="tool-ex-prompt">"Are there any CVEs in requests 2.28.0?"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">security_fetch_package_risk_brief</div>
+        <div class="tool-ex-prompt">"Is it safe to ship with lodash 4.17.20? Give me a SHIP/CAUTION/BLOCK verdict"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">security_detect_typosquatting</div>
+        <div class="tool-ex-prompt">"Is 'reqeusts' a typosquatting attack on the requests package?"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">security_fetch_cve_watch</div>
+        <div class="tool-ex-prompt">"Create a watchlist for CVE-2024-3094 and notify me if it gets exploited"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">security_audit_sbom_vulnerabilities</div>
+        <div class="tool-ex-prompt">"Audit this CycloneDX SBOM for known vulnerabilities"</div>
+      </div>
+    </div>
+
+    <!-- T11 -->
+    <h2 id="t11">T11 — Patent Intelligence</h2>
+    <p>Sources: EPO OPS API, USPTO, WIPO.</p>
+    <div class="tool-examples">
+      <div class="tool-ex">
+        <div class="tool-ex-name">legal_search_patents_by_keyword</div>
+        <div class="tool-ex-prompt">"Find patents on mRNA lipid nanoparticle delivery from 2019-2023"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">legal_fetch_patent_by_number</div>
+        <div class="tool-ex-prompt">"Get details for patent US10702600B2"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">legal_fetch_inventor_portfolio</div>
+        <div class="tool-ex-prompt">"What patents does Katalin Karikó hold?"</div>
+      </div>
+    </div>
+
+    <!-- T18 -->
+    <h2 id="t18">T18 — Government Contracts</h2>
+    <p>Sources: SAM.gov, FPDS-NG.</p>
+    <div class="tool-examples">
+      <div class="tool-ex">
+        <div class="tool-ex-name">govcon_search_contract_awards</div>
+        <div class="tool-ex-prompt">"What contracts has Booz Allen Hamilton won from DoD in the last year?"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">govcon_fetch_vendor_contract_history</div>
+        <div class="tool-ex-prompt">"Show me the full federal contract history for Palantir Technologies"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">govcon_fetch_open_solicitations</div>
+        <div class="tool-ex-prompt">"What open solicitations exist for AI software from HHS?"</div>
+      </div>
+    </div>
+
+    <!-- T19 -->
+    <h2 id="t19">T19 — Regulatory</h2>
+    <p>Sources: Regulations.gov, Federal Register.</p>
+    <div class="tool-examples">
+      <div class="tool-ex">
+        <div class="tool-ex-name">regulatory_search_open_rulemakings</div>
+        <div class="tool-ex-prompt">"What open FDA rulemakings exist for medical devices?"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">regulatory_fetch_docket_details</div>
+        <div class="tool-ex-prompt">"Get details for docket EPA-HQ-OAR-2021-0317"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">regulatory_fetch_federal_register_notices</div>
+        <div class="tool-ex-prompt">"Find recent Federal Register notices from the FTC on data privacy"</div>
+      </div>
+    </div>
+
+    <!-- T22 -->
+    <h2 id="t22">T22 — Compliance</h2>
+    <p>Sources: NPPES NPI Registry, FINRA BrokerCheck, SAM.gov exclusions.</p>
+    <div class="tool-examples">
+      <div class="tool-ex">
+        <div class="tool-ex-name">compliance_check_sam_exclusion</div>
+        <div class="tool-ex-prompt">"Is Acme Corp excluded from federal contracting?"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">compliance_fetch_npi_provider</div>
+        <div class="tool-ex-prompt">"Look up NPI number 1234567890"</div>
+      </div>
+      <div class="tool-ex">
+        <div class="tool-ex-name">compliance_fetch_finra_broker</div>
+        <div class="tool-ex-prompt">"Check FINRA BrokerCheck for John Smith CRD# 1234567"</div>
+      </div>
+    </div>
+
+    <!-- RATE LIMITS -->
+    <h2 id="rate-limits">Rate limits</h2>
+    <table class="rate-table">
+      <thead>
+        <tr>
+          <th>Tier</th>
+          <th>Calls/month</th>
+          <th>Requires</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Free</td>
+          <td>500</td>
+          <td>Nothing — works out of the box</td>
+        </tr>
+        <tr>
+          <td>Pro</td>
+          <td>5,000</td>
+          <td>API key ($29/month)</td>
+        </tr>
+        <tr>
+          <td>Team</td>
+          <td>25,000</td>
+          <td>API key ($99/month)</td>
+        </tr>
+        <tr>
+          <td>Enterprise</td>
+          <td>Unlimited</td>
+          <td>Contact support ($499/month)</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Rate limits apply per IP address on the free tier and per API key on paid tiers. Upstream rate limits (e.g. SAM.gov, EPO) may apply separately and are handled transparently — the tool returns a <code>DEGRADED</code> status instead of failing.</p>
+
+    <!-- ERRORS -->
+    <h2 id="errors">Error handling</h2>
+    <p>All tools return structured JSON. When an upstream source is unavailable, tools return a <code>status: "DEGRADED"</code> response with whatever partial data is available — they never throw unhandled errors.</p>
+    <p>Common status values:</p>
+    <ul>
+      <li><code>"OK"</code> — full data returned</li>
+      <li><code>"DEGRADED"</code> — partial data, one or more upstreams unavailable</li>
+      <li><code>"NOT_FOUND"</code> — the requested entity does not exist in the source</li>
+      <li><code>"INVALID_PARAMS"</code> — input validation failed (check the <code>error</code> field for details)</code></li>
+    </ul>
+    <p>Need help? Email <a href="mailto:support@datanexusmcp.com">support@datanexusmcp.com</a> or open an issue on <a href="https://github.com/datanexusmcp/mcp-server" target="_blank" rel="noopener">GitHub</a>.</p>
+    <p>Full server listing: <a href="https://glama.ai/mcp/servers/datanexusmcp" target="_blank" rel="noopener">Glama — DataNexus MCP</a></p>
+  </main>
+
+</div>
+
+<footer>
+  <div class="footer-links">
+    <a href="/">Home</a>
+    <a href="/privacy">Privacy Policy</a>
+    <a href="mailto:support@datanexusmcp.com">Support</a>
+    <a href="https://github.com/datanexusmcp/mcp-server" target="_blank" rel="noopener">GitHub</a>
+  </div>
+  <div class="footer-copy">© 2026 DataNexus MCP</div>
+</footer>
+
+</body>
+</html>
