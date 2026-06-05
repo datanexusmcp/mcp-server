@@ -85,7 +85,9 @@ _HT_QUOTA_TTL       = 25 * 3600    # 25h — covers daily reset window
 _HT_DAILY_LIMIT     = 100
 _SUBDOMAINS_TTL     = 24 * 3600    # 24h — spec requirement
 _REVERSE_IP_TTL     = 24 * 3600    # 24h — spec requirement
-_CRT_SUBDOMAINS_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+_CRT_SUBDOMAINS_TIMEOUT = httpx.Timeout(8.0, connect=5.0)
+_RAPIDDNS_TIMEOUT = httpx.Timeout(8.0, connect=5.0)
+_RAPIDDNS_BASE = "https://rapiddns.io/subdomain/{domain}?full=1&down=1&output=json"
 
 # DKIM selectors to check (10 common ones per spec)
 _DKIM_SELECTORS = [
@@ -657,7 +659,7 @@ async def fetch_domain_history(domain: str) -> dict:
 @mcp.tool()
 @verify_entitlement("T07")
 async def fetch_subdomains(domain: str) -> dict:
-    """Enumerate subdomains for a domain via Certificate Transparency logs. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. anthropic.com. Required. Returns deduplicated list of known subdomains from crt.sh CT logs. crt.sh is a free replacement for SecurityTrails subdomain enumeration ($200/month). Results are cached 24h — second call returns in under 500ms. First call may be slower (crt.sh is 5-30s). Circuit breaker trips after 3 timeouts or 5xx errors within 600s. Verified source: crt.sh Certificate Transparency. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_fetch_subdomains", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    """Enumerate subdomains for a domain via Certificate Transparency logs. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. anthropic.com. Required. Returns deduplicated list of known subdomains. Primary source: crt.sh Certificate Transparency (free). Fallback source: RapidDNS (free, passive CT + DNS) — used automatically when crt.sh is unavailable. Response includes source field indicating which source was used. Results are cached 24h — second call returns in under 500ms. First call may be slower (8s max per source). Circuit breaker trips after 3 timeouts or 5xx errors within 600s. Verified sources: crt.sh Certificate Transparency, RapidDNS. 24-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_fetch_subdomains", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
@@ -687,103 +689,93 @@ async def fetch_subdomains(domain: str) -> dict:
                 }
                 return _out
 
-            # ── 2. Circuit breaker ────────────────────────────────────────────────
-            if is_tripped("crt_sh"):
-                ctx.set_error(ErrorCode.CIRCUIT_OPEN)
-                _error_code = "CIRCUIT_OPEN"
+            # ── 2. Fetch subdomains: Tier 1 crt.sh → Tier 2 RapidDNS fallback ─────
+            subdomains: list[str] = []
+            source_used = "crt_sh"
+
+            # Tier 1: crt.sh (primary, passive CT)
+            if not is_tripped("crt_sh"):
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=_CRT_SUBDOMAINS_TIMEOUT,
+                        headers=_HEADERS,
+                        follow_redirects=True,
+                    ) as client:
+                        resp = await client.get(
+                            CRT_SH_URL,
+                            params={"q": f"%.{domain_clean}", "output": "json"},
+                        )
+                        if resp.status_code in (429, 500, 502, 503, 504):
+                            record_failure_sync("crt_sh")
+                            if resp.status_code in (502, 503):
+                                # crt.sh upstream degraded — serve archive cache if available
+                                archive = get_cached("subdomains", domain_clean + ":archive")
+                                if archive:
+                                    log.warning("t07.fetch_subdomains: crt.sh %d — serving cached data for domain=%s",
+                                                resp.status_code, domain_clean)
+                                    _success = True
+                                    _cache_hit = True
+                                    return {
+                                        **archive,
+                                        **standard_response_fields(ctx.query_hash, archive.get("data_as_of", ""), False),
+                                        "source_note":      "crt.sh upstream degraded (502). Serving cached data.",
+                                        "cache_served":     True,
+                                        "upstream_healthy": False,
+                                        "cache_hit":        True,
+                                    }
+                            log.warning("t07.fetch_subdomains crt_sh HTTP %d domain=%s", resp.status_code, domain_clean)
+                        else:
+                            resp.raise_for_status()
+                            try:
+                                raw_data = resp.json()
+                            except Exception:
+                                raw_data = []
+                            record_success_sync("crt_sh")
+                            seen: set = set()
+                            if isinstance(raw_data, list):
+                                for entry in raw_data:
+                                    name_val = entry.get("name_value", "") or entry.get("common_name", "")
+                                    for name in name_val.split("\n"):
+                                        name = name.strip().lower()
+                                        if not name or name.startswith("*") or name == domain_clean:
+                                            continue
+                                        if name.endswith(f".{domain_clean}") and name not in seen:
+                                            seen.add(name)
+                                            subdomains.append(name)
+                            subdomains = sorted(subdomains)
+                            source_used = "crt_sh"
+                except httpx.TimeoutException:
+                    record_failure_sync("crt_sh")
+                    log.warning("t07.fetch_subdomains crt_sh timeout domain=%s — trying fallback", domain_clean)
+                except Exception:
+                    record_failure_sync("crt_sh")
+                    log.warning("t07.fetch_subdomains crt_sh error domain=%s — trying fallback", domain_clean)
+            else:
+                log.info("t07.fetch_subdomains crt_sh circuit open — trying fallback domain=%s", domain_clean)
+
+            # Tier 2: RapidDNS fallback (passive CT + DNS, no auth)
+            if not subdomains and not is_tripped("rapiddns"):
+                try:
+                    subdomains = await _fetch_rapiddns(domain_clean)
+                    source_used = "rapiddns"
+                    log.info("t07.fetch_subdomains rapiddns fallback ok domain=%s count=%d",
+                             domain_clean, len(subdomains))
+                except Exception as e:
+                    log.warning("t07.fetch_subdomains rapiddns fallback failed domain=%s: %s", domain_clean, e)
+
+            # Both sources failed or tripped
+            if not subdomains and is_tripped("crt_sh") and is_tripped("rapiddns"):
+                ctx.set_error(ErrorCode.UPSTREAM_UNAVAILABLE)
+                _error_code = "UPSTREAM_UNAVAILABLE"
                 return error_response(
-                    error_code=ErrorCode.CIRCUIT_OPEN,
-                    message="crt.sh temporarily unavailable, try again in 15 minutes.",
+                    error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
+                    message="Certificate transparency sources unavailable. Try again later.",
                     query_hash=ctx.query_hash,
                     retry_after=900,
                     ingest_healthy=False,
-                    upstream="crt.sh",
+                    upstream="crt.sh,rapiddns",
                     retryable=True,
                 )
-
-            # ── 3. Live fetch from crt.sh (30s timeout) ───────────────────────────
-            try:
-                async with httpx.AsyncClient(
-                    timeout=_CRT_SUBDOMAINS_TIMEOUT,
-                    headers=_HEADERS,
-                    follow_redirects=True,
-                ) as client:
-                    resp = await client.get(
-                        CRT_SH_URL,
-                        params={"q": f"%.{domain_clean}", "output": "json"},
-                    )
-                    if resp.status_code in (429, 500, 502, 503, 504):
-                        record_failure_sync("crt_sh")
-                        if resp.status_code in (502, 503):
-                            # crt.sh upstream degraded — serve archive cache if available
-                            archive = get_cached("subdomains", domain_clean + ":archive")
-                            if archive:
-                                log.warning("t07.fetch_subdomains: crt.sh %d — serving cached data for domain=%s",
-                                            resp.status_code, domain_clean)
-                                _success = True
-                                _cache_hit = True
-                                return {
-                                    **archive,
-                                    **standard_response_fields(ctx.query_hash, archive.get("data_as_of", ""), False),
-                                    "source_note":      "crt.sh upstream degraded (502). Serving cached data.",
-                                    "cache_served":     True,
-                                    "upstream_healthy": False,
-                                    "cache_hit":        True,
-                                }
-                        return error_response(
-                            error_code=ErrorCode.UPSTREAM_UNAVAILABLE,
-                            message=f"crt.sh returned HTTP {resp.status_code}. Try again later.",
-                            query_hash=ctx.query_hash,
-                            retry_after=60,
-                            ingest_healthy=False,
-                            upstream="crt.sh",
-                            retryable=True,
-                        )
-                    resp.raise_for_status()
-                    try:
-                        raw_data = resp.json()
-                    except Exception:
-                        raw_data = []
-            except httpx.TimeoutException:
-                record_failure_sync("crt_sh")
-                return error_response(
-                    error_code=ErrorCode.UPSTREAM_TIMEOUT,
-                    message="crt.sh timed out (>30s). Try again — result will be cached on success.",
-                    query_hash=ctx.query_hash,
-                    retry_after=30,
-                    ingest_healthy=False,
-                    upstream="crt.sh",
-                    retryable=True,
-                )
-            except Exception:
-                record_failure_sync("crt_sh")
-                log.exception("t07.fetch_subdomains error domain=%s", domain_clean)
-                return error_response(
-                    error_code=ErrorCode.INTERNAL_ERROR,
-                    message="An internal error occurred. Please try again.",
-                    query_hash=ctx.query_hash,
-                    retry_after=0,
-                    ingest_healthy=False,
-                    upstream="crt.sh",
-                    retryable=True,
-                )
-
-            record_success_sync("crt_sh")
-
-            # Deduplicate, sort, strip wildcards
-            seen: set = set()
-            subdomains = []
-            if isinstance(raw_data, list):
-                for entry in raw_data:
-                    name_val = entry.get("name_value", "") or entry.get("common_name", "")
-                    for name in name_val.split("\n"):
-                        name = name.strip().lower()
-                        if not name or name.startswith("*") or name == domain_clean:
-                            continue
-                        if name.endswith(f".{domain_clean}") and name not in seen:
-                            seen.add(name)
-                            subdomains.append(name)
-            subdomains = sorted(subdomains)
 
             data_as_of = datetime.now(timezone.utc).isoformat()
             latency_ms = int((time.monotonic() - _t0) * 1000)
@@ -791,16 +783,22 @@ async def fetch_subdomains(domain: str) -> dict:
                 "domain":     domain_clean,
                 "subdomains": subdomains,
                 "count":      len(subdomains),
-                "sources":    ["crt.sh"],
+                "source":     source_used,
+                "sources":    ["crt.sh"] if source_used == "crt_sh" else ["rapiddns.io"],
                 "status":     "fresh",
                 "latency_ms": latency_ms,
             }
             markdown = _build_subdomains_markdown(result)
             _validate_canary(markdown)
 
+            source_url = (
+                f"https://crt.sh/?q=%.{domain_clean}&output=json"
+                if source_used == "crt_sh"
+                else _RAPIDDNS_BASE.format(domain=domain_clean)
+            )
             payload = {
                 "tool_id":         "T07",
-                "source_url":      f"https://crt.sh/?q=%.{domain_clean}&output=json",
+                "source_url":      source_url,
                 "fetch_timestamp": data_as_of,
                 "cache_hit":       False,
                 "staleness_notice": None,
@@ -1361,6 +1359,41 @@ async def _fetch_crt_sh(query: str, limit: int = 10) -> list:
             break
 
     return certs
+
+
+async def _fetch_rapiddns(domain: str) -> list[str]:
+    """
+    Fallback subdomain enumeration via RapidDNS.
+    Free, no auth, passive CT + DNS data.
+    Returns deduplicated sorted list of subdomains.
+    """
+    if is_tripped("rapiddns"):
+        raise RuntimeError("rapiddns circuit open")
+
+    url = _RAPIDDNS_BASE.format(domain=domain)
+    try:
+        async with httpx.AsyncClient(
+            timeout=_RAPIDDNS_TIMEOUT,
+            headers={"User-Agent": "DataNexus-MCP/1.0"},
+            follow_redirects=True,
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            subdomains = list({
+                entry.get("subdomain", "").strip().lower()
+                for entry in data
+                if entry.get("subdomain")
+                and domain in entry.get("subdomain", "")
+            })
+            record_success_sync("rapiddns")
+            return sorted(subdomains)
+    except httpx.TimeoutException:
+        record_failure_sync("rapiddns")
+        raise
+    except Exception:
+        record_failure_sync("rapiddns")
+        raise
 
 
 async def _fetch_dns_records(domain: str, record_types: list) -> dict:
