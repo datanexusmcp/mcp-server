@@ -41,6 +41,7 @@ datanexusmcp.com {
   handle {
     reverse_proxy datanexus-mcp:8000 {
       flush_interval -1
+      header_up Accept "application/json"
       header_up X-Real-IP {remote_host}
       header_up X-Forwarded-For {remote_host}
       transport http {
