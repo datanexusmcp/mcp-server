@@ -36,7 +36,7 @@ from typing import Optional
 
 from datanexus.core.activation_detector import UsageRow, check as _activation_check
 from datanexus.core.ip_classifier import classify_ip
-from payment.config import classify_call
+from datanexus.core.request_context import call_type_var, is_organic_var
 
 log = logging.getLogger("datanexus.usage_recorder")
 
@@ -121,6 +121,8 @@ async def record_usage(
     latency_ms: Optional[int] = None,
     *,
     api_key_hash: Optional[str] = None,
+    call_type: str = "",
+    is_organic: bool = False,
 ) -> None:
     """
     Persist one tool call to the usage table.  Always returns — never raises.
@@ -139,13 +141,16 @@ async def record_usage(
       Records the row with is_smoke=True — useful for pass-rate tracking.
       PostHog is excluded separately in analytics._fire().
     """
-    is_smoke  = os.environ.get("DATANEXUS_SMOKE_RUN") == "1"
-    call_type = classify_call(client_ip, api_key_hash)
-    # Bug 10 fix: smoke env var overrides IP-based classification.
-    # Catches unknown-IP smoke calls that would otherwise fall through to organic.
+    is_smoke = os.environ.get("DATANEXUS_SMOKE_RUN") == "1"
+    # Use pre-classified values from middleware (set via ContextVars by _ApiKeyMiddleware).
+    # Fall back to ContextVar values if caller didn't pass them explicitly.
+    if not call_type:
+        call_type = call_type_var.get()
     if is_smoke:
         call_type = "smoke"
-    is_organic = call_type in ("organic", "claude_ai")
+        is_organic = False
+    elif not is_organic:
+        is_organic = is_organic_var.get()
 
     try:
         pool = await _get_pool()

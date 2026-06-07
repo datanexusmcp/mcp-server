@@ -19,6 +19,10 @@ from contextvars import ContextVar
 # Falls back to 'unknown' when called outside an HTTP request lifecycle.
 client_ip_var: ContextVar[str] = ContextVar("client_ip", default="unknown")
 
-# SHA-256 hash of the validated X-DataNexus-Key header.
+# SHA-256 hash of the validated X-DataNexus-Key or X-Api-Key header.
 # Set by _ApiKeyMiddleware in main.py; None when no key is present or key is invalid.
 api_key_var: ContextVar[str | None] = ContextVar("api_key", default=None)
+
+# Sprint 8B: call classification set by _ApiKeyMiddleware after classify_call().
+call_type_var: ContextVar[str] = ContextVar("call_type", default="unknown")
+is_organic_var: ContextVar[bool] = ContextVar("is_organic", default=False)

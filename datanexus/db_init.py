@@ -46,6 +46,14 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 
 ALTER TABLE usage ADD COLUMN IF NOT EXISTS api_key_hash TEXT;
+
+-- Sprint 8B: call classification columns
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS call_type VARCHAR(20) DEFAULT 'unknown';
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS is_organic BOOLEAN DEFAULT FALSE;
+
+-- Sprint 8B: api_keys table extensions for /signup endpoint
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS api_keys_email_unique ON api_keys(email);
 """
 
 
