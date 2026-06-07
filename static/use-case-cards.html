@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Use Cases — DataNexus MCP</title>
+  <meta name="description" content="See how DataNexus MCP replaces multi-tool, multi-tab compliance, security, legal, govcon, domain, regulatory, and nonprofit due-diligence workflows with a single structured query.">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #080c10;
+      --surface:  #0d1117;
+      --border:   #1e2733;
+      --border2:  #243040;
+      --cyan:     #00d4ff;
+      --cyan-dim: #0099bb;
+      --text:     #c9d1d9;
+      --muted:    #6e8098;
+      --mono:     'Courier New', Courier, monospace;
+      --sans:     -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(8,12,16,0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo {
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: bold;
+      color: var(--cyan);
+      letter-spacing: 0.05em;
+      text-decoration: none;
+    }
+    .nav-back {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+      transition: color 0.15s;
+    }
+    .nav-back:hover { color: var(--text); }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    main { padding: 80px 0; }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #e6edf3;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .page-sub {
+      color: var(--muted);
+      font-size: 16px;
+      margin-bottom: 48px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">DATANEXUS<span style="color:#6e8098">_MCP</span></a>
+  <a href="/" class="nav-back">← Back to home</a>
+</nav>
+
+<main class="container">
+  <h1 id="built-for-compliance-due-diligence-heading">Built for Compliance Due Diligence</h1>
+  <p class="page-sub">What people ask DataNexus MCP — and what it replaces</p>
+
+<style>
+  .dnx-cards { display: grid; gap: 16px; max-width: 880px; margin: 0 auto; }
+  .dnx-card {
+    border: 1px solid #2a2f3a;
+    border-radius: 12px;
+    background: #11151c;
+    overflow: hidden;
+  }
+  .dnx-card-toggle {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 18px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
+    color: inherit;
+    font: inherit;
+  }
+  .dnx-card-badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #8ab4ff;
+    background: rgba(138,180,255,0.12);
+    border-radius: 6px;
+    padding: 4px 10px;
+    margin-bottom: 6px;
+  }
+  .dnx-card-title { font-size: 17px; font-weight: 600; margin: 0; }
+  .dnx-card-chevron {
+    flex-shrink: 0;
+    width: 20px; height: 20px;
+    transition: transform 0.2s ease;
+  }
+  .dnx-card[open] .dnx-card-chevron { transform: rotate(180deg); }
+  .dnx-card-body { padding: 0 20px 22px; display: grid; gap: 14px; }
+  @media (min-width: 640px) {
+    .dnx-card-body { grid-template-columns: 1fr 1fr; }
+  }
+  .dnx-col {
+    border-radius: 10px;
+    padding: 16px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: #1b1f27;
+  }
+  .dnx-col-without { background: #fdeceb; border: 1px solid #f3b9b4; }
+  .dnx-col-with { background: #e9f9ef; border: 1px solid #aee3c2; }
+  .dnx-col-label {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; margin-bottom: 8px; display: block;
+  }
+  .dnx-col-without .dnx-col-label { color: #ff8a8a; }
+  .dnx-col-with .dnx-col-label { color: #7CE8A4; }
+  .dnx-prompt {
+    display: block; margin-top: 10px; padding: 10px 12px;
+    background: rgba(0,0,0,0.25); border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px; color: #cdd6f4;
+  }
+  .dnx-keywords { font-size: 12px; color: #8b94a3; margin-top: 6px; }
+</style>
+
+<div class="dnx-cards">
+
+  <details class="dnx-card">
+    <summary class="dnx-card-toggle">
+      <span>
+        <span class="dnx-card-badge">Compliance</span>
+        <h3 class="dnx-card-title">Is this vendor SAM-excluded and FINRA registered?</h3>
+      </span>
+      <svg class="dnx-card-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
+    <div class="dnx-card-body">
+      <div class="dnx-col dnx-col-without">
+        <span class="dnx-col-label">Without DataNexus</span>
+        Compliance officer logs into SAM.gov, then FINRA BrokerCheck, then NPPES NPI Registry separately — three logins, ~20 minutes, then copy-pastes results into a spreadsheet for the audit file.
+      </div>
+      <div class="dnx-col dnx-col-with">
+        <span class="dnx-col-label">With DataNexus</span>
+        <span class="dnx-prompt">"Is Acme Capital LLC SAM-excluded and FINRA registered?"</span>
+        One structured response — exclusion status, FINRA registration ID, and broker disciplinary history — in about 3 seconds.
+        <div class="dnx-keywords">SAM exclusion list API · FINRA broker check tool · NPI registry lookup API</div>
+      </div>
+    </div>
+  </details>
+
+  <details class="dnx-card">
+    <summary class="dnx-card-toggle">
+      <span>
+        <span class="dnx-card-badge">Security</span>
+        <h3 class="dnx-card-title">Should I ship this dependency, or block it?</h3>
+      </span>
+      <svg class="dnx-card-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
+    <div class="dnx-card-body">
+      <div class="dnx-col dnx-col-without">
+        <span class="dnx-col-label">Without DataNexus</span>
+        Engineer greps package.json, opens a dozen tabs across NVD, OSV.dev, and GitHub Advisories, and manually weighs CVSS scores against exploit likelihood before deciding whether to patch now or later.
+      </div>
+      <div class="dnx-col dnx-col-with">
+        <span class="dnx-col-label">With DataNexus</span>
+        <span class="dnx-prompt">"Give me a SHIP/CAUTION/BLOCK verdict on lodash 4.17.15."</span>
+        One risk brief combining CVEs, license conflicts, maintainer health, and transitive dependency exposure — with a clear verdict.
+        <div class="dnx-keywords">CVE exploit probability score · SBOM vulnerability scanner API · npm typosquatting detector</div>
+      </div>
+    </div>
+  </details>
+
+  <details class="dnx-card">
+    <summary class="dnx-card-toggle">
+      <span>
+        <span class="dnx-card-badge">Legal / IP</span>
+        <h3 class="dnx-card-title">Map prior art for a patent in seconds, not hours</h3>
+      </span>
+      <svg class="dnx-card-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
+    <div class="dnx-card-body">
+      <div class="dnx-col dnx-col-without">
+        <span class="dnx-col-label">Without DataNexus</span>
+        Paralegal runs five separate USPTO keyword searches, exports results to Excel, and spends a couple of hours manually building a citation tree to map prior art.
+      </div>
+      <div class="dnx-col dnx-col-with">
+        <span class="dnx-col-label">With DataNexus</span>
+        <span class="dnx-prompt">"Show the citation graph for patent US10123456 and list the inventor's full portfolio."</span>
+        Structured citation network and inventor history returned in one call — instantly.
+        <div class="dnx-keywords">patent citation graph API · USPTO inventor portfolio search</div>
+      </div>
+    </div>
+  </details>
+
+  <details class="dnx-card">
+    <summary class="dnx-card-toggle">
+      <span>
+        <span class="dnx-card-badge">GovCon</span>
+        <h3 class="dnx-card-title">Size up a competitor's federal contract footprint</h3>
+      </span>
+      <svg class="dnx-card-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
+    <div class="dnx-card-body">
+      <div class="dnx-col dnx-col-without">
+        <span class="dnx-col-label">Without DataNexus</span>
+        GovCon analyst searches USASpending.gov and SAM.gov separately, downloads CSVs, and manually joins award history with open solicitations to size up a competitor or partner.
+      </div>
+      <div class="dnx-col dnx-col-with">
+        <span class="dnx-col-label">With DataNexus</span>
+        <span class="dnx-prompt">"Show Raytheon's contract award history and any open DoD solicitations they'd likely bid on."</span>
+        Combined award history and live solicitation match in a single structured answer.
+        <div class="dnx-keywords">SAM.gov solicitation search API · federal contract award lookup</div>
+      </div>
+    </div>
+  </details>
+
+  <details class="dnx-card">
+    <summary class="dnx-card-toggle">
+      <span>
+        <span class="dnx-card-badge">Domain Intel</span>
+        <h3 class="dnx-card-title">Does this vendor's domain look legitimate?</h3>
+      </span>
+      <svg class="dnx-card-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
+    <div class="dnx-card-body">
+      <div class="dnx-col dnx-col-without">
+        <span class="dnx-col-label">Without DataNexus</span>
+        Security analyst manually runs WHOIS, DNS, and SSL checks across four different tools to assess whether a new SaaS vendor's domain looks legitimate or freshly registered and suspicious.
+      </div>
+      <div class="dnx-col dnx-col-with">
+        <span class="dnx-col-label">With DataNexus</span>
+        <span class="dnx-prompt">"Pull DNS records, SSL chain, and domain history for vendor-portal.example.com — does anything look off?"</span>
+        One consolidated domain risk snapshot — registration age, SSL chain validity, subdomain exposure — flags issues automatically.
+        <div class="dnx-keywords">domain reconnaissance API · SSL certificate chain checker · reverse IP lookup tool</div>
+      </div>
+    </div>
+  </details>
+
+  <details class="dnx-card">
+    <summary class="dnx-card-toggle">
+      <span>
+        <span class="dnx-card-badge">Regulatory</span>
+        <h3 class="dnx-card-title">Stay ahead of rulemakings that affect your industry</h3>
+      </span>
+      <svg class="dnx-card-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
+    <div class="dnx-card-body">
+      <div class="dnx-col dnx-col-without">
+        <span class="dnx-col-label">Without DataNexus</span>
+        Policy analyst checks the Federal Register site daily, searches by agency and keyword, and manually logs new dockets relevant to their industry into a tracking sheet.
+      </div>
+      <div class="dnx-col dnx-col-with">
+        <span class="dnx-col-label">With DataNexus</span>
+        <span class="dnx-prompt">"Any new Federal Register notices or open rulemakings affecting medical device manufacturers this month?"</span>
+        Filtered list of relevant notices and dockets with summaries — no daily manual checking required.
+        <div class="dnx-keywords">federal register notice search API · open rulemaking tracker</div>
+      </div>
+    </div>
+  </details>
+
+  <details class="dnx-card">
+    <summary class="dnx-card-toggle">
+      <span>
+        <span class="dnx-card-badge">Nonprofit</span>
+        <h3 class="dnx-card-title">Run grantee due diligence in one pass</h3>
+      </span>
+      <svg class="dnx-card-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </summary>
+    <div class="dnx-card-body">
+      <div class="dnx-col dnx-col-without">
+        <span class="dnx-col-label">Without DataNexus</span>
+        Grant officer looks up a nonprofit's EIN on the IRS site, then separately pulls Form 990 financials and searches news for risk flags — a 30-minute multi-source process per organization.
+      </div>
+      <div class="dnx-col dnx-col-with">
+        <span class="dnx-col-label">With DataNexus</span>
+        <span class="dnx-prompt">"Give me a full due-diligence profile on EIN 13-1837418 — financial trends, executive pay, and risk flags."</span>
+        One health-scored profile (0–100) with revenue trends and red flags — ready to attach to a grant review.
+        <div class="dnx-keywords">nonprofit EIN lookup API · 990 financial trend data</div>
+      </div>
+    </div>
+  </details>
+
+</div>
+</main>
+</body>
+</html>

@@ -37,6 +37,10 @@ datanexusmcp.com {
     file_server
   }
 
+  handle /use-case-cards.html {
+    file_server
+  }
+
   # ── MCP server (all other routes) ─────────────
   handle {
     reverse_proxy datanexus-mcp:8000 {

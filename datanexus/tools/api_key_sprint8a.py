@@ -170,6 +170,7 @@ async def rotate_api_key(
     current_key: Annotated[str, Field(description="Existing active API key (dnx_...) to revoke and replace. Required.")],
 ) -> dict:
     """
+    ⚠️ DESTRUCTIVE — requires human confirmation before use in automated pipelines.
     Revoke the current API key and issue a replacement. Returns the new key once —
     store it immediately. Pass keys as the X-DataNexus-Key header.
     """
@@ -232,6 +233,7 @@ async def revoke_api_key(
     key: Annotated[str, Field(description="API key (dnx_...) to permanently revoke. Required.")],
 ) -> dict:
     """
+    ⚠️ DESTRUCTIVE — requires human confirmation before use in automated pipelines.
     Permanently revoke a DataNexus API key. The key will stop working immediately.
     This action cannot be undone — generate a new key if access is needed again.
     """
