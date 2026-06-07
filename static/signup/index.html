@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Get Your Free DataNexus API Key</title>
+  <meta name="description" content="Register for a free DataNexus API key — 10 lookups per week across 55 public data tools. Nonprofit, security, compliance, patents, domain, govcon, regulatory.">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #080c10;
+      --surface:  #0d1117;
+      --border:   #1e2733;
+      --border2:  #243040;
+      --cyan:     #00d4ff;
+      --cyan-dim: #0099bb;
+      --text:     #c9d1d9;
+      --muted:    #6e8098;
+      --error:    #f97583;
+      --success:  #56d364;
+      --mono:     'Courier New', Courier, monospace;
+      --sans:     -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(8,12,16,0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo {
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: bold;
+      color: var(--cyan);
+      letter-spacing: 0.05em;
+      text-decoration: none;
+    }
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+      transition: color 0.15s;
+    }
+    .nav-links a:hover { color: var(--text); }
+
+    /* ── LAYOUT ── */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      padding: 80px 0;
+    }
+
+    /* ── HERO ── */
+    .hero-eyebrow {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      color: var(--cyan);
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      font-size: clamp(32px, 4vw, 48px);
+      font-weight: 800;
+      line-height: 1.1;
+      color: #e6edf3;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+    h1 span { color: var(--cyan); }
+
+    .hero-sub {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 520px;
+      margin-bottom: 48px;
+      line-height: 1.7;
+    }
+
+    /* ── SIGNUP CARD ── */
+    .signup-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 40px;
+      max-width: 460px;
+      width: 100%;
+    }
+
+    .signup-card h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #e6edf3;
+      margin-bottom: 8px;
+    }
+
+    .signup-card p {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 28px;
+      line-height: 1.6;
+    }
+
+    /* ── FORM ── */
+    .field {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    input[type="email"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: 4px;
+      padding: 11px 14px;
+      font-size: 15px;
+      color: var(--text);
+      font-family: var(--sans);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input[type="email"]:focus { border-color: var(--cyan); }
+    input[type="email"]::placeholder { color: var(--muted); }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 28px;
+      border-radius: 4px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s;
+      cursor: pointer;
+      border: none;
+      width: 100%;
+    }
+    .btn-primary {
+      background: var(--cyan);
+      color: #080c10;
+    }
+    .btn-primary:hover:not(:disabled) { background: #33deff; }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ── STATE MESSAGES ── */
+    .state-icon {
+      font-size: 36px;
+      margin-bottom: 16px;
+    }
+
+    .state-heading {
+      font-size: 20px;
+      font-weight: 700;
+      color: #e6edf3;
+      margin-bottom: 8px;
+    }
+
+    .state-body {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .state-body a {
+      color: var(--cyan);
+      text-decoration: none;
+    }
+    .state-body a:hover { text-decoration: underline; }
+
+    .state-body code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: rgba(0,212,255,0.08);
+      border: 1px solid rgba(0,212,255,0.2);
+      padding: 2px 6px;
+      border-radius: 2px;
+      color: var(--cyan);
+    }
+
+    .state-error {
+      font-size: 14px;
+      color: var(--error);
+      margin-top: 12px;
+      min-height: 20px;
+    }
+
+    /* ── LAYOUT: two-column on wide screens ── */
+    .signup-layout {
+      display: grid;
+      grid-template-columns: 1fr 460px;
+      gap: 80px;
+      align-items: center;
+      width: 100%;
+    }
+
+    /* ── FEATURE LIST ── */
+    .feature-list {
+      list-style: none;
+      margin-top: 32px;
+    }
+    .feature-list li {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 20px;
+      font-size: 15px;
+      color: var(--muted);
+    }
+    .feature-list li::before {
+      content: '→';
+      color: var(--cyan);
+      font-family: var(--mono);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .feature-list li strong {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      .signup-layout {
+        grid-template-columns: 1fr;
+        gap: 48px;
+      }
+      .signup-card { max-width: 100%; }
+      main { padding: 48px 0; }
+    }
+    @media (max-width: 480px) {
+      nav { padding: 0 16px; }
+      .nav-links { gap: 16px; }
+      .signup-card { padding: 28px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-logo">DATANEXUS<span style="color:#6e8098">_MCP</span></a>
+  <ul class="nav-links">
+    <li><a href="/#tools">Tools</a></li>
+    <li><a href="/docs">Docs</a></li>
+    <li><a href="/privacy">Privacy</a></li>
+  </ul>
+</nav>
+
+<!-- MAIN -->
+<main>
+  <div class="container">
+    <div class="signup-layout">
+
+      <!-- LEFT: hero copy -->
+      <div>
+        <p class="hero-eyebrow">Free · No credit card · Instant delivery</p>
+        <h1>Get Your Free<br><span>DataNexus</span> API Key</h1>
+        <p class="hero-sub">
+          10 free lookups per week across 55 public data tools.
+          Register now — you'll be first to hear when paid tiers open.
+        </p>
+        <ul class="feature-list">
+          <li><strong>55 tools</strong> — nonprofit, security, compliance, patents, domain, govcon, regulatory</li>
+          <li><strong>Zero setup</strong> — paste your key in Claude Settings → Connectors → DataNexus</li>
+          <li><strong>Key delivered by email</strong> — no account to create, no dashboard to manage</li>
+          <li><strong>Early access</strong> — registered users get priority notification when paid tiers launch</li>
+        </ul>
+      </div>
+
+      <!-- RIGHT: form card -->
+      <div class="signup-card">
+        <div id="signup-container">
+          <!-- STATE: default (form) -->
+          <h2>Register for free access</h2>
+          <p>Enter your email and we'll send your API key instantly. No password, no credit card.</p>
+          <form id="signup-form" onsubmit="handleSubmit(event)">
+            <div class="field">
+              <label for="email">Email address</label>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                placeholder="you@company.com"
+                required
+                autocomplete="email"
+              >
+            </div>
+            <div class="state-error" id="inline-error" aria-live="polite"></div>
+            <button type="submit" class="btn btn-primary" id="submit-btn" style="margin-top:8px;">
+              Get API Key
+            </button>
+          </form>
+          <p style="font-size:13px; color:var(--muted); margin-top:20px; text-align:center;">
+            Questions? <a href="mailto:signup@datanexusmcp.com" style="color:var(--cyan);">signup@datanexusmcp.com</a>
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<!-- FOOTER -->
+<footer>
+  <a href="/">DataNexus MCP</a> &nbsp;·&nbsp;
+  <a href="/privacy">Privacy</a> &nbsp;·&nbsp;
+  <a href="/docs">Docs</a> &nbsp;·&nbsp;
+  <a href="mailto:signup@datanexusmcp.com">signup@datanexusmcp.com</a>
+</footer>
+
+<script>
+  /* ── State templates ──────────────────────────────────────────────────────── */
+
+  function stateSuccess() {
+    return `
+      <div class="state-icon">✉️</div>
+      <div class="state-heading">Check your inbox</div>
+      <div class="state-body">
+        Your API key is on its way. Check your email (and spam folder just in case).<br><br>
+        Once you have your key:<br>
+        <strong style="color:var(--text)">Claude Settings → Connectors → DataNexus → paste key → Save</strong><br><br>
+        Questions? <a href="mailto:signup@datanexusmcp.com">signup@datanexusmcp.com</a>
+      </div>
+    `;
+  }
+
+  function stateSuccessDegraded() {
+    return `
+      <div class="state-icon">⚠️</div>
+      <div class="state-heading">Key saved — email delivery failed</div>
+      <div class="state-body">
+        Your key was registered but we couldn't send the email right now.<br><br>
+        Email us directly and we'll get your key to you:<br>
+        <a href="mailto:signup@datanexusmcp.com">signup@datanexusmcp.com</a>
+      </div>
+    `;
+  }
+
+  function stateError(message, recoverable) {
+    const btn = recoverable
+      ? `<button onclick="resetForm()" class="btn btn-primary" style="margin-top:20px;">Try again</button>`
+      : '';
+    return `
+      <div class="state-icon">⚡</div>
+      <div class="state-heading">Something went wrong</div>
+      <div class="state-body">${message}</div>
+      ${btn}
+    `;
+  }
+
+  /* ── Form reset ──────────────────────────────────────────────────────────── */
+
+  function resetForm() {
+    document.getElementById('signup-container').innerHTML = `
+      <h2>Register for free access</h2>
+      <p>Enter your email and we'll send your API key instantly. No password, no credit card.</p>
+      <form id="signup-form" onsubmit="handleSubmit(event)">
+        <div class="field">
+          <label for="email">Email address</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            placeholder="you@company.com"
+            required
+            autocomplete="email"
+          >
+        </div>
+        <div class="state-error" id="inline-error" aria-live="polite"></div>
+        <button type="submit" class="btn btn-primary" id="submit-btn" style="margin-top:8px;">
+          Get API Key
+        </button>
+      </form>
+      <p style="font-size:13px; color:var(--muted); margin-top:20px; text-align:center;">
+        Questions? <a href="mailto:signup@datanexusmcp.com" style="color:var(--cyan);">signup@datanexusmcp.com</a>
+      </p>
+    `;
+  }
+
+  /* ── Submit handler ──────────────────────────────────────────────────────── */
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    const email = document.getElementById('email').value.trim();
+    const btn = document.getElementById('submit-btn');
+    const inlineError = document.getElementById('inline-error');
+
+    // Clear inline error, disable button
+    inlineError.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+
+    try {
+      const response = await fetch('/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (_parseErr) {
+        // Caddy returned non-JSON (e.g. HTML error page when MCP server is down)
+        document.getElementById('signup-container').innerHTML = stateError(
+          'Service temporarily unavailable — try again in a few minutes.',
+          true
+        );
+        return;
+      }
+
+      if (response.ok) {
+        // 200: success (new signup or upsert) or degraded (SendGrid failed)
+        if (data.email_sent === false) {
+          document.getElementById('signup-container').innerHTML = stateSuccessDegraded();
+        } else {
+          document.getElementById('signup-container').innerHTML = stateSuccess();
+        }
+        return;
+      }
+
+      // Error responses — all recoverable (re-enable form)
+      if (response.status === 400) {
+        // Invalid email — show inline under the field, keep form
+        inlineError.textContent = 'Please enter a valid email address.';
+        btn.disabled = false;
+        btn.textContent = 'Get API Key';
+        return;
+      }
+
+      if (response.status === 429) {
+        document.getElementById('signup-container').innerHTML = stateError(
+          'Too many requests — you can request up to 3 keys per day. Try again tomorrow.',
+          true
+        );
+        return;
+      }
+
+      // 503 or any other error
+      document.getElementById('signup-container').innerHTML = stateError(
+        'Service temporarily unavailable — try again in a few minutes.',
+        true
+      );
+
+    } catch (_networkErr) {
+      // fetch threw — network error (offline, DNS failure, etc.)
+      document.getElementById('signup-container').innerHTML = stateError(
+        'Network error — please check your connection and try again.',
+        true
+      );
+    }
+  }
+</script>
+
+</body>
+</html>
