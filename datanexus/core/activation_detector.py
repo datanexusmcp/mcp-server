@@ -115,14 +115,15 @@ async def _check_activations(pool, row: UsageRow) -> None:
     async with pool.acquire() as conn:
 
         # LEVEL 1 — first ever call from this IP
-        existing = await conn.fetchval(
-            """SELECT COUNT(*) FROM usage
-               WHERE client_ip=$1
-                 AND (is_smoke = false OR is_smoke IS NULL)
-                 AND (is_grey  = false OR is_grey  IS NULL)""",
+        # Bug 11 fix: dedup by event existence rather than COUNT(*)==1 — the
+        # latter is off-by-one whenever earlier rows for this IP were filtered
+        # out (is_smoke/is_grey), which let real_query out-fire first_call.
+        first_call_logged = await conn.fetchval(
+            """SELECT COUNT(*) FROM activation_events
+               WHERE client_ip=$1 AND event_type='first_call'""",
             ip,
         )
-        if existing == 1:
+        if first_call_logged == 0:
             await _log_event(conn, ip, 'first_call', tool_id, row)
 
         # LEVEL 1b — real query (not example / test input)
@@ -131,29 +132,36 @@ async def _check_activations(pool, row: UsageRow) -> None:
         if not is_example and len(input_str) > 10:
             await _log_event(conn, ip, 'real_query', tool_id, row)
 
-        # LEVEL 2 — multi-tool session (3+ distinct tools in 30-min window)
-        session_tools = await conn.fetch(
-            """SELECT DISTINCT tool_id FROM usage
+        # LEVEL 2 — multi-tool session (3+ distinct tools), anchored to session start
+        session_rows = await conn.fetch(
+            """SELECT tool_id, created_at FROM usage
                WHERE client_ip=$1
                  AND created_at >= NOW() - INTERVAL '30 minutes'
                  AND (is_smoke = false OR is_smoke IS NULL)
-                 AND (is_grey  = false OR is_grey  IS NULL)""",
+                 AND (is_grey  = false OR is_grey  IS NULL)
+               ORDER BY created_at ASC""",
             ip,
         )
-        if len(session_tools) >= 3:
+        distinct_tools = {r['tool_id'] for r in session_rows}
+        if len(distinct_tools) >= 3:
+            session_start = session_rows[0]['created_at']
             already_logged = await conn.fetchval(
                 """SELECT COUNT(*) FROM activation_events
                    WHERE client_ip=$1 AND event_type='multi_tool'
-                     AND created_at >= NOW() - INTERVAL '30 minutes'""",
-                ip,
+                     AND created_at >= $2""",
+                ip, session_start,
             )
             if already_logged == 0:
                 await _log_event(
                     conn, ip, 'multi_tool', tool_id, row,
-                    metadata={'tools': [r['tool_id'] for r in session_tools]},
+                    metadata={
+                        'tools': sorted(distinct_tools),
+                        'session_start': session_start.isoformat(),
+                    },
                 )
 
-        # LEVEL 3 — return visit (calls on 2+ different calendar days)
+        # LEVEL 3 — return visit (calls on 2+ different calendar days),
+        # deduped to fire at most once per user per calendar day.
         call_days = await conn.fetch(
             """SELECT DISTINCT DATE(created_at) AS day
                FROM usage
@@ -162,8 +170,15 @@ async def _check_activations(pool, row: UsageRow) -> None:
                  AND (is_grey  = false OR is_grey  IS NULL)""",
             ip,
         )
-        if len(call_days) == 2:    # exactly 2 = just crossed the threshold
-            await _log_event(conn, ip, 'return_visit', tool_id, row)
+        if len(call_days) >= 2:
+            already_today = await conn.fetchval(
+                """SELECT COUNT(*) FROM activation_events
+                   WHERE client_ip=$1 AND event_type='return_visit'
+                     AND DATE(created_at) = CURRENT_DATE""",
+                ip,
+            )
+            if already_today == 0:
+                await _log_event(conn, ip, 'return_visit', tool_id, row)
 
         # LEVEL 4 — power user (crosses 10-call threshold in rolling 7 days)
         week_calls = await conn.fetchval(

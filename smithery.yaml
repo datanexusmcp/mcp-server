@@ -78,6 +78,16 @@ startCommand:
   type: http
   url: https://datanexusmcp.com/mcp
 
+configSchema:
+  type: object
+  properties:
+    apiKey:
+      type: string
+      title: DataNexus API Key
+      description: "Optional. Get a free key at datanexusmcp.com/signup. Unlocks higher limits."
+      x-secret: true
+  required: []
+
 # Local fallback (bridges HTTP → stdio)
 # startCommand:
 #   type: stdio

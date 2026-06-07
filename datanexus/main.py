@@ -36,14 +36,16 @@ import pathlib as _pathlib
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List as _List, Literal as _Literal, Optional as _Optional
+from typing import Annotated, List as _List, Literal as _Literal, Optional as _Optional
 
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from datanexus.core.request_context import api_key_var, client_ip_var
+from pydantic import Field
+
+from datanexus.core.request_context import api_key_var, call_type_var, client_ip_var, is_organic_var
 
 
 class _ClientIPMiddleware:
@@ -79,16 +81,44 @@ class _ClientIPMiddleware:
 import hashlib as _hashlib
 
 
+def _extract_configschema_api_key(scope) -> str:
+    """
+    Sprint 9 P4 — Smithery passes configSchema values to HTTP servers as a
+    base64url-encoded JSON object in the `config` query-string parameter
+    (e.g. ?config=eyJhcGlLZXkiOiAiZG54Xy4uLiJ9). Decode it and pull `apiKey`.
+
+    Returns "" on any parse failure (fail-open — anonymous tier).
+    """
+    try:
+        import base64 as _base64
+        import json as _json_local
+        from urllib.parse import parse_qs as _parse_qs
+
+        qs = (scope.get("query_string") or b"").decode()
+        if not qs:
+            return ""
+        params = _parse_qs(qs)
+        config_raw = (params.get("config") or [""])[0]
+        if not config_raw:
+            return ""
+        # base64url, tolerate missing padding
+        padded = config_raw + "=" * (-len(config_raw) % 4)
+        decoded = _base64.urlsafe_b64decode(padded.encode())
+        config = _json_local.loads(decoded)
+        api_key = config.get("apiKey", "")
+        return api_key.strip() if isinstance(api_key, str) else ""
+    except Exception:
+        return ""
+
+
 class _ApiKeyMiddleware:
     """
-    Pure-ASGI middleware — extracts X-DataNexus-Key header, validates it against
-    the api_keys table (cached in Redis for 5 min), and sets api_key_var.
+    Pure-ASGI middleware — extracts X-Api-Key (preferred) or X-DataNexus-Key
+    (deprecated, Sprint 8A compat) header, validates against Redis cache + Postgres,
+    and sets api_key_var + call_type_var + is_organic_var.
 
-    Pure-ASGI (not BaseHTTPMiddleware) — same pattern as _ClientIPMiddleware —
-    so contextvars propagate correctly into asyncio.create_task() chains.
-
-    Fails open: if Redis or DB is unavailable, api_key_var is left as None
-    (anonymous tier) and a WARNING is logged.  Tool calls are never blocked.
+    Reserved keys (SMOKE, OWNER, GLAMA) bypass DB/Redis entirely.
+    Fails open: if Redis or DB is unavailable, anonymous tier is assumed.
     """
 
     def __init__(self, app):
@@ -96,27 +126,54 @@ class _ApiKeyMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] in ("http", "websocket"):
-            headers = {k.lower(): v for k, v in scope.get("headers", [])}
-            raw_key = headers.get(b"x-datanexus-key", b"").decode().strip()
+            from payment.config import RESERVED_KEYS, classify_call as _classify_call
 
-            token = None
+            headers = {k.lower(): v for k, v in scope.get("headers", [])}
+
+            # Prefer X-Api-Key; fall back to deprecated X-DataNexus-Key;
+            # finally fall back to Smithery configSchema apiKey (Sprint 9 P4).
+            # Precedence: X-Api-Key header > X-DataNexus-Key > configSchema apiKey
+            raw_key = headers.get(b"x-api-key", b"").decode().strip()
+            if not raw_key:
+                legacy = headers.get(b"x-datanexus-key", b"").decode().strip()
+                if legacy:
+                    raw_key = legacy
+                    logging.getLogger("datanexus.main").warning(
+                        "_ApiKeyMiddleware: X-DataNexus-Key is deprecated — use X-Api-Key"
+                    )
+            if not raw_key:
+                raw_key = _extract_configschema_api_key(scope)
+
+            key_is_valid = False
+            key_hash = None
+
             if raw_key:
-                key_hash = _hashlib.sha256(raw_key.encode()).hexdigest()
-                tier = await self._lookup(key_hash)
-                if tier is not None:
-                    token = api_key_var.set(key_hash)
+                if raw_key in RESERVED_KEYS:
+                    # Reserved keys are always valid — no DB/Redis lookup
+                    key_hash = _hashlib.sha256(raw_key.encode()).hexdigest()
+                    key_is_valid = True
                 else:
-                    token = api_key_var.set(None)
-            else:
-                token = api_key_var.set(None)
+                    key_hash = _hashlib.sha256(raw_key.encode()).hexdigest()
+                    tier = await self._lookup(key_hash)
+                    key_is_valid = tier is not None
+
+            client_ip = client_ip_var.get()
+            call_type = _classify_call(client_ip, raw_key or None, key_is_valid=key_is_valid)
+            is_organic = call_type == "organic"
+
+            ak_token = api_key_var.set(key_hash if key_is_valid else None)
+            ct_token = call_type_var.set(call_type)
+            io_token = is_organic_var.set(is_organic)
 
             try:
                 await self.app(scope, receive, send)
             finally:
-                if token is not None:
-                    api_key_var.reset(token)
+                api_key_var.reset(ak_token)
+                call_type_var.reset(ct_token)
+                is_organic_var.reset(io_token)
         else:
             await self.app(scope, receive, send)
+
 
     async def _lookup(self, key_hash: str):
         """
@@ -207,8 +264,9 @@ from datanexus.tools.nonprofit_sprint7  import nonprofit_sprint7 as nonprofit_sp
 from datanexus.tools.api_key_sprint8a import api_key_server, _UsageMiddleware
 
 # ── Sprint 8B imports ─────────────────────────────────────────────────────────
-from datanexus.tools.t10_sprint8    import t10_sprint8
+from datanexus.tools.t10_sprint8      import t10_sprint8
 from datanexus.tools.frontend_sprint8 import frontend_sprint8
+from datanexus.endpoints.signup       import signup_handler
 
 # ── Section 13 validation tool ───────────────────────────────────────────────
 from datanexus.tools.validation import validate_tool_output
@@ -224,14 +282,14 @@ from payment.tools import report_mcpize_link as _real_report_mcpize_link
 
 
 async def report_feedback(
-    tool_id: str,
-    query_hash: str,
-    signal: str,
-    comment: str = "",
-    missing_fields: _Optional[_List[str]] = None,
-    feedback_type: _Literal["user_feedback", "agent_gap"] = "user_feedback",
-    intended_query: _Optional[str] = None,
-    gap_description: _Optional[str] = None,
+    tool_id: Annotated[str, Field(description='Tool identifier, e.g. T04 or security_fetch_cve_detail. Required.')],
+    query_hash: Annotated[str, Field(description='Hash from the response being reported — found in the query_hash field of any response. Required.')],
+    signal: Annotated[str, Field(description='One of incorrect_data, missing_field, stale_data, not_useful, wrong_entity, or data_quality. Required for user_feedback.')],
+    comment: Annotated[str, Field(description='Description of the issue. Optional. Max 500 characters.')] = "",
+    missing_fields: Annotated[_Optional[_List[str]], Field(description='List of field names that are absent or wrong. Optional.')] = None,
+    feedback_type: Annotated[_Literal["user_feedback", "agent_gap"], Field(description='user_feedback (default) or agent_gap. Use agent_gap when the tool returned a valid response but did not serve the user\'s actual need.')] = "user_feedback",
+    intended_query: Annotated[_Optional[str], Field(description='What the agent was trying to accomplish — used when feedback_type=agent_gap. Optional. Max 256 chars.')] = None,
+    gap_description: Annotated[_Optional[str], Field(description='What was missing or wrong in the result — used when feedback_type=agent_gap. Optional. Max 256 chars.')] = None,
 ) -> dict:
     """Report a data quality issue or agent intent gap with a DataNexus tool response. Read-only call. Records feedback for human and AI review. tool_id: Tool identifier e.g. T04 or security_fetch_cve_detail. Required. query_hash: Hash from the response being reported. Required. Found in the query_hash field of any response. signal: One of incorrect_data, missing_field, stale_data, not_useful, wrong_entity, or data_quality. Required for user_feedback. feedback_type: user_feedback (default) or agent_gap. Use agent_gap when the tool returned a valid 200 response but the result did not serve the user's actual need. intended_query: What the agent was trying to accomplish — used when feedback_type=agent_gap. Optional. Max 256 chars. gap_description: What was missing or wrong in the result — used when feedback_type=agent_gap. Optional. Max 256 chars. comment: Description of the issue. Optional. Max 500 characters. missing_fields: List of field names that are absent or wrong. Optional. Call this after receiving a result that appears wrong, outdated, or incomplete. Do not call this to report network errors — those resolve on retry. If this tool response did not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="{this_tool_id}", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     return await _real_report_feedback(
@@ -242,7 +300,9 @@ async def report_feedback(
     )
 
 
-async def report_mcpize_link(tool_id: str) -> dict:
+async def report_mcpize_link(
+    tool_id: Annotated[str, Field(description='DataNexus tool identifier to check, e.g. "T01", "T07", "T10" — pass the ID of the tool the user is asking about.')],
+) -> dict:
     """Returns the MCPize subscription status and payment tier for the current DataNexus API key. Read-only. No side effects. Idempotent. tool_id: DataNexus tool identifier to check (e.g. "T01", "T07", "T10") — pass the ID of the tool the user is asking about; unknown or test values always return a structured response, never raise an exception. Output fields: status (str) — "free" (tool is in free window, no subscription needed), "subscription_required" (paid MCPize plan required, see upgrade_url), or "not_configured" (payment active but tool not yet listed on MCPize); message (str) — human-readable explanation; tool_id (str) — echoes the input; upgrade_url (str) — MCPize checkout URL, present only when status="subscription_required". Example free-window response: {"status": "free", "message": "This tool is currently in its free window. No subscription required.", "tool_id": "T10"}. Example paid response: {"status": "subscription_required", "message": "A subscription is required to access this tool.", "upgrade_url": "https://mcpize.com/checkout/...", "tool_id": "T10"}. Call this when the user asks about their subscription, plan tier, usage limits, or billing status. Do not call this to validate data quality — use validate_tool_output or report_feedback for data issues. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="report_mcpize_link", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     return _real_report_mcpize_link(tool_id)
 
@@ -358,14 +418,28 @@ main.mount(t10_sprint8,       namespace="security")
 main.mount(frontend_sprint8,  namespace="frontend_security")
 
 # ── Register shared infrastructure tools (once — not per-tool duplicates) ─────
-main.tool()(report_feedback)
-main.tool()(report_mcpize_link)
+main.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False})(report_feedback)
+main.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})(report_mcpize_link)
 
 # ── Register Section 13 validation tool ──────────────────────────────────────
-main.tool()(validate_tool_output)
+main.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})(validate_tool_output)
 
 # ── Register P02 meta-tool (no namespace — top-level) ────────────────────────
-main.tool()(search_datanexus_tools)
+main.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(search_datanexus_tools)
+
+# ── Sprint 8B: /signup — GET serves HTML page, POST handles registration ──────
+@main.custom_route("/signup", methods=["GET"])
+async def signup_page(request: Request) -> JSONResponse:
+    import pathlib
+    from starlette.responses import HTMLResponse
+    html_path = pathlib.Path(__file__).parent.parent / "static" / "signup" / "index.html"
+    return HTMLResponse(html_path.read_text())
+
+
+@main.custom_route("/signup", methods=["POST"])
+async def signup(request: Request) -> JSONResponse:
+    return await signup_handler(request)
+
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
 @main.custom_route("/health", methods=["GET"])
@@ -377,6 +451,48 @@ async def health(request: Request) -> JSONResponse:
         "tools": 55,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
+
+
+# ── OAuth discovery stubs (Sprint 9 P2 — full server deferred to Sprint 10) ──
+_OAUTH_METADATA = {
+    "issuer": "https://datanexusmcp.com",
+    "authorization_endpoint": "https://datanexusmcp.com/oauth/authorize",
+    "token_endpoint": "https://datanexusmcp.com/oauth/token",
+    "scopes_supported": ["mcp:tools"],
+    "code_challenge_methods_supported": ["S256"],
+}
+
+
+@main.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
+async def oauth_protected_resource(request: Request) -> JSONResponse:
+    return JSONResponse(_OAUTH_METADATA)
+
+
+@main.custom_route("/.well-known/oauth-protected-resource/mcp", methods=["GET"])
+async def oauth_protected_resource_mcp(request: Request) -> JSONResponse:
+    return JSONResponse(_OAUTH_METADATA)
+
+
+@main.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
+async def oauth_authorization_server(request: Request) -> JSONResponse:
+    return JSONResponse(_OAUTH_METADATA)
+
+
+_OAUTH_NOT_IMPLEMENTED = {
+    "error": "not_implemented",
+    "message": "OAuth server launches Sprint 10. Use X-Api-Key header.",
+    "eta": "Sprint 10",
+}
+
+
+@main.custom_route("/oauth/authorize", methods=["GET"])
+async def oauth_authorize_stub(request: Request) -> JSONResponse:
+    return JSONResponse(_OAUTH_NOT_IMPLEMENTED, status_code=501)
+
+
+@main.custom_route("/oauth/token", methods=["POST"])
+async def oauth_token_stub(request: Request) -> JSONResponse:
+    return JSONResponse(_OAUTH_NOT_IMPLEMENTED, status_code=501)
 
 
 # ── MCP manifest (registry discovery) ────────────────────────────────────────

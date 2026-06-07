@@ -17,10 +17,10 @@ from datanexus.tools.t10 import (
 
 security = FastMCP("DataNexus Security")
 
-security.tool()(fetch_package_vulnerabilities)
-security.tool()(fetch_dependency_graph)
-security.tool()(fetch_cve_detail)
-security.tool()(audit_sbom_vulnerabilities)
-security.tool()(fetch_package_licence)
-security.tool()(fetch_cisa_kev)
-security.tool()(fetch_cve_epss)
+security.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_package_vulnerabilities)
+security.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_dependency_graph)
+security.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_cve_detail)
+security.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(audit_sbom_vulnerabilities)
+security.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_package_licence)
+security.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_cisa_kev)
+security.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_cve_epss)

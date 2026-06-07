@@ -13,7 +13,7 @@ from datanexus.tools.t22 import (
 
 compliance = FastMCP("DataNexus Compliance")
 
-compliance.tool()(fetch_npi_provider)
-compliance.tool()(search_npi_by_name)
-compliance.tool()(fetch_finra_broker)
-compliance.tool()(check_sam_exclusion)
+compliance.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_npi_provider)
+compliance.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(search_npi_by_name)
+compliance.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_finra_broker)
+compliance.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(check_sam_exclusion)

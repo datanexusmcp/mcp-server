@@ -12,6 +12,6 @@ from datanexus.tools.t18 import (
 
 govcon = FastMCP("DataNexus GovCon")
 
-govcon.tool()(search_contract_awards)
-govcon.tool()(fetch_vendor_contract_history)
-govcon.tool()(fetch_open_solicitations)
+govcon.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(search_contract_awards)
+govcon.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_vendor_contract_history)
+govcon.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_open_solicitations)

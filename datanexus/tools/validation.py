@@ -26,6 +26,9 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Annotated
+
+from pydantic import Field
 
 from datanexus.core.validator import validate_payload
 from datanexus.agents.anomaly_reviewer import review_anomaly
@@ -54,9 +57,9 @@ def _is_haiku_worthy(issues: list[str]) -> bool:
 
 
 async def validate_tool_output(
-    tool_id: str,
-    query_hash: str,
-    response_json: str,
+    tool_id: Annotated[str, Field(description="DataNexus tool identifier, e.g. T04, T10, T22 — found in the tool_id field of any response. Required.")],
+    query_hash: Annotated[str, Field(description="Hash from the response being validated — found in the query_hash field of any response. Enables feedback correlation. Required.")],
+    response_json: Annotated[str, Field(description="The full tool response, serialised as a JSON string, to validate for data quality issues. Required.")],
 ) -> dict:
     """Validate a DataNexus tool response for data quality issues using two-layer validation: deterministic rules first, then AI review for ambiguous cases. Read-only. Never blocks. tool_id: DataNexus tool identifier e.g. T04, T10, T22. Required. Find in the tool_id field of any response. query_hash: Hash from the response you are validating. Required. Enables feedback correlation. response_json: Full tool response serialised as a JSON string. Required. Returns pass or issues_found, with issues from each layer and whether feedback was auto-filed. Both layers must agree before feedback is filed. Use validate_tool_output to check data quality. Use report_feedback instead to manually report an issue you have already identified. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="validate_tool_output", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     # ── Safe outer wrapper — never raises ────────────────────────────────────

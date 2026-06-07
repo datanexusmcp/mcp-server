@@ -13,7 +13,7 @@ from datanexus.tools.t11 import (
 
 legal = FastMCP("DataNexus Legal")
 
-legal.tool()(fetch_patent_by_number)
-legal.tool()(search_patents_by_keyword)
-legal.tool()(fetch_patent_citations)
-legal.tool()(fetch_inventor_portfolio)
+legal.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_patent_by_number)
+legal.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(search_patents_by_keyword)
+legal.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_patent_citations)
+legal.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_inventor_portfolio)

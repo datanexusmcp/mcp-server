@@ -7,7 +7,9 @@ Analytics: INCR redis key analytics:search:{YYYY-MM-DD} — no raw query text st
 import logging
 import re
 from datetime import date
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 from datanexus.cache import get_redis
 
@@ -68,7 +70,10 @@ def _score(query_tokens: list[str], task_tokens: list[str]) -> int:
     return count
 
 
-async def search_datanexus_tools(query: str, domain: Optional[str] = None) -> dict:
+async def search_datanexus_tools(
+    query: Annotated[str, Field(description="Plain English description of your task, e.g. 'check if a Python package has CVEs' or 'look up a UK charity by name'. Required.")],
+    domain: Annotated[Optional[str], Field(description="Restrict results to one sub-server: nonprofit, security, compliance, domain, legal, govcon, or regulatory. Optional.")] = None,
+) -> dict:
     """Find the right DataNexus tool by describing your task in plain English. Read-only. No side effects. Call this before any other DataNexus tool to reduce context load from 40000 to 800 tokens. query: Plain English description of your task e.g. check if a Python package has CVEs or look up a UK charity by name. Required. domain: Restrict results to one sub-server: nonprofit, security, compliance, domain, legal, govcon, or regulatory. Optional. Returns matching tool names and parameter hints you can call directly. Do not call this recursively or to validate results — use validate_tool_output for that. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="search_datanexus_tools", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     # Analytics: INCR daily counter — raw query text is never stored
     analytics_key = f"analytics:search:{date.today().isoformat()}"

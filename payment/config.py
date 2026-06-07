@@ -100,14 +100,22 @@ GLAMA_CIDRS: List[str] = ["172.64.0.0/13"]
 # Claude.ai connector IPs (Anthropic infrastructure — real users, proxied).
 ANTHROPIC_CIDRS: List[str] = ["160.79.104.0/21"]
 
+# Smithery scanner / proxy IPs (Cloudflare range used for tool discovery + health checks).
+SMITHERY_CIDRS: List[str] = ["162.158.0.0/15"]
+
 # Special API keys — loaded from env vars so they can be rotated without redeploy.
 # Defaults are safe sentinel values that classify correctly even without env config.
 SMOKE_API_KEY: str = os.environ.get("DATANEXUS_SMOKE_KEY", "dn-smoke-internal")
 OWNER_API_KEY: str = os.environ.get("DATANEXUS_OWNER_KEY", "dn-owner-internal")
+GLAMA_API_KEY: str = os.environ.get("DATANEXUS_GLAMA_KEY", "dn-glama-internal")
 
-# Pre-computed hashes — api_key_var holds SHA-256(raw_key), not the raw key itself.
-_SMOKE_KEY_HASH: str = _hashlib.sha256(SMOKE_API_KEY.encode()).hexdigest()
-_OWNER_KEY_HASH: str = _hashlib.sha256(OWNER_API_KEY.encode()).hexdigest()
+# Sprint 8B: all reserved keys — checked before DB/Redis in _ApiKeyMiddleware.
+RESERVED_KEYS: set = {SMOKE_API_KEY, OWNER_API_KEY, GLAMA_API_KEY}
+
+# HARD_LIMIT=11: block starts at call 11; users receive calls 1-10.
+WEEK_LIMIT: int = 10
+NUDGE_AT: int = 8
+HARD_LIMIT: int = 11  # serve call 10, hard block at 11
 
 
 def _ip_in_cidrs(ip: str, cidrs: List[str]) -> bool:
@@ -119,28 +127,46 @@ def _ip_in_cidrs(ip: str, cidrs: List[str]) -> bool:
         return False
 
 
-def classify_call(client_ip: str, api_key_hash: Optional[str]) -> str:
+def is_glama_ip(ip: str) -> bool:
+    return _ip_in_cidrs(ip, GLAMA_CIDRS)
+
+
+def is_anthropic_ip(ip: str) -> bool:
+    return _ip_in_cidrs(ip, ANTHROPIC_CIDRS)
+
+
+def is_smithery_ip(ip: str) -> bool:
+    return _ip_in_cidrs(ip, SMITHERY_CIDRS)
+
+
+def classify_call(
+    client_ip: str,
+    api_key: Optional[str],
+    key_is_valid: bool = False,
+) -> str:
     """
     Classify a tool call by its origin.
 
-    Returns one of: organic | glama | smoke | owner | claude_ai | unknown
+    api_key: raw key string (not hash). Reserved keys are matched by value.
+    key_is_valid: pre-computed by _ApiKeyMiddleware — do NOT re-validate here.
+
+    Returns one of: smoke | owner | glama | registered | smithery | claude_ai | organic | unknown
 
     Precedence (highest → lowest):
-      1. SMOKE_API_KEY hash match → smoke
-      2. OWNER_API_KEY hash match → owner
-      3. IP in GLAMA_CIDRS        → glama
-      4. IP in ANTHROPIC_CIDRS    → claude_ai  (organic, proxied)
-      5. Known non-empty IP       → organic
-      6. Unknown/missing IP       → unknown
+      1. Reserved key match (smoke/owner/glama)
+      2. Valid registered key
+      3. IP in GLAMA_CIDRS
+      4. IP in SMITHERY_CIDRS
+      5. IP in ANTHROPIC_CIDRS
+      6. Known non-empty IP → organic
+      7. Unknown/missing IP → unknown
     """
-    if api_key_hash and api_key_hash == _SMOKE_KEY_HASH:
-        return "smoke"
-    if api_key_hash and api_key_hash == _OWNER_KEY_HASH:
-        return "owner"
-    if _ip_in_cidrs(client_ip, GLAMA_CIDRS):
-        return "glama"
-    if _ip_in_cidrs(client_ip, ANTHROPIC_CIDRS):
-        return "claude_ai"
-    if client_ip and client_ip not in ("unknown", ""):
-        return "organic"
+    if api_key == SMOKE_API_KEY:    return "smoke"
+    if api_key == OWNER_API_KEY:    return "owner"
+    if api_key == GLAMA_API_KEY:    return "glama"
+    if api_key and key_is_valid:    return "registered"
+    if is_glama_ip(client_ip):      return "glama"
+    if is_smithery_ip(client_ip):   return "smithery"
+    if is_anthropic_ip(client_ip):  return "claude_ai"
+    if client_ip not in (None, "", "unknown"): return "organic"
     return "unknown"

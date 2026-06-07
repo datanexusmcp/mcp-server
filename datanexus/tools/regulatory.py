@@ -12,6 +12,6 @@ from datanexus.tools.t19 import (
 
 regulatory = FastMCP("DataNexus Regulatory")
 
-regulatory.tool()(search_open_rulemakings)
-regulatory.tool()(fetch_docket_details)
-regulatory.tool()(fetch_federal_register_notices)
+regulatory.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(search_open_rulemakings)
+regulatory.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_docket_details)
+regulatory.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_federal_register_notices)

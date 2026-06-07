@@ -12,6 +12,6 @@ from datanexus.tools.t04 import (
 
 nonprofit = FastMCP("DataNexus Nonprofit")
 
-nonprofit.tool()(fetch_nonprofit_by_ein)
-nonprofit.tool()(search_nonprofits_by_name)
-nonprofit.tool()(fetch_charity_uk)
+nonprofit.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_nonprofit_by_ein)
+nonprofit.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(search_nonprofits_by_name)
+nonprofit.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(fetch_charity_uk)
