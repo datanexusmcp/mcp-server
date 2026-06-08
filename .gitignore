@@ -45,3 +45,4 @@ specs/
 datanexus/scripts/
 datanexus/tests/
 .secrets.baseline
+CLAUDE.md
