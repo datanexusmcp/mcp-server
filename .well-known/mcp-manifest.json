@@ -19,7 +19,7 @@
   "tools": [
     {
       "name": "search_datanexus_tools",
-      "description": "Find the right DataNexus tool by describing your task in plain English. Use this first. Token-efficient entry point.",
+      "description": "Search DataNexus tools by describing your task in plain English. Returns the most relevant tools for your query. Token-efficient.",
       "parameters": {
         "query": { "type": "string", "description": "Natural language description of your task", "required": true }
       }
