@@ -46,3 +46,13 @@ datanexus/scripts/
 datanexus/tests/
 .secrets.baseline
 CLAUDE.md
+# Internal Claude Code files — never publish
+CLAUDE.md
+*_PROMPT.md
+*_PROMPT_v*.md
+*_DESIGN.md
+*_FINDINGS*.md
+DATANEXUS_CONTEXT*.md
+SPRINT*.md
+SESSION_STARTER.md
+TODOS.md
