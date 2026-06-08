@@ -60,3 +60,16 @@ P3B_FINDINGS.md
 P8_FINDINGS_AND_SPRINT9B_DESIGN.md
 SECTION13_PROMPT.md
 SECTION13_PROMPT_v2.md
+
+# Infrastructure — never publish
+Dockerfile
+Caddyfile
+
+# Auth and middleware internals
+datanexus/tools/api_key_sprint8a.py
+datanexus/core/request_context.py
+
+# DB schema
+datanexus/**/*.sql
+datanexus/db/migrations/*.sql
+datanexus/core/db_migrations/*.sql
