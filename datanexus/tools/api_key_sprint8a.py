@@ -219,6 +219,13 @@ async def rotate_api_key(
             log.warning("rotate_api_key: Redis cache update failed: %s", exc)
 
     log.info("rotate_api_key: key rotated old=[REDACTED] new=[REDACTED]")
+    log.info(
+        "audit: action=rotate_api_key actor_ip=%s "
+        "old_key_prefix=[REDACTED] new_key_prefix=%s "
+        "outcome=success",
+        client_ip_var.get("unknown"),
+        new_raw[:8],
+    )
     return {
         "status": "ok",
         "api_key": new_raw,
@@ -262,6 +269,13 @@ async def revoke_api_key(
             log.warning("revoke_api_key: Redis DEL failed: %s", exc)
 
     log.info("revoke_api_key: key revoked key=[REDACTED]")
+    log.info(
+        "audit: action=revoke_api_key actor_ip=%s "
+        "key_prefix=[REDACTED] outcome=success "
+        "timestamp=%s",
+        client_ip_var.get("unknown"),
+        datetime.now(timezone.utc).isoformat(),
+    )
     return {"status": "revoked"}
 
 

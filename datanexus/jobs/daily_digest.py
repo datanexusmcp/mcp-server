@@ -108,8 +108,8 @@ def _read_total_calls(r: redis_lib.Redis, date_str: str) -> int:
             if val is not None:
                 try:
                     total += int(val)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as exc:
+                    log.debug("daily_digest: skipping non-integer counter value: %s", exc)
         return total
     except Exception as exc:
         log.warning("daily_digest: error reading call counters — %s", exc)

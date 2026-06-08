@@ -37,6 +37,7 @@ from fastmcp import FastMCP
 
 from datanexus.cache import get_redis
 from datanexus.core.audit import AuditContext, standard_response_fields
+from datanexus.core.request_context import client_ip_var
 from datanexus.core.schema import ErrorCode, error_response
 from datanexus.core.timeout import with_timeout
 from datanexus.analytics import track_tool_call
@@ -249,6 +250,12 @@ async def _handle_cve_delete(r, watch_id: str) -> dict:
     key    = f"{_CVE_WATCH_PREFIX}{watch_id}"
     exists = await r.exists(key)
     await _delete_cve_watch(r, watch_id)
+    log.info(
+        "audit: action=delete_cve_watch actor_ip=%s "
+        "watch_id=%s outcome=success",
+        client_ip_var.get("unknown"),
+        watch_id,
+    )
     return {
         "action":   "delete",
         "watch_id": watch_id,
@@ -497,6 +504,12 @@ async def _handle_sbom_deregister(r, watch_id: str) -> dict:
     pipe.delete(key)
     pipe.srem(_SBOM_WATCH_INDEX, watch_id)
     await pipe.execute()
+    log.info(
+        "audit: action=deregister_sbom_watch actor_ip=%s "
+        "watch_id=%s outcome=success",
+        client_ip_var.get("unknown"),
+        watch_id,
+    )
     return {
         "action":      "deregister",
         "watch_id":    watch_id,

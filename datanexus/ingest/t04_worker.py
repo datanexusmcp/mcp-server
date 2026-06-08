@@ -184,8 +184,8 @@ async def _index_bmf_csv(content: bytes, ttl: int) -> int:
         if count % batch_size == 0:
             try:
                 pipe.execute()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("t04_worker: Redis pipeline batch flush failed: %s", exc)
             pipe = r.pipeline(transaction=False)
 
     try:
@@ -295,8 +295,8 @@ async def _index_teos_filings(data: dict, year: int, ttl: int) -> int:
         if count % 1000 == 0:
             try:
                 pipe.execute()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("t04_worker: Redis pipeline batch flush failed: %s", exc)
             pipe = r.pipeline(transaction=False)
 
     try:
@@ -430,8 +430,8 @@ async def _index_uk_bulk(zip_bytes: bytes, ttl: int) -> tuple[int, bytes]:
         if count % batch_size == 0:
             try:
                 pipe.execute()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("t04_worker: Redis pipeline batch flush failed: %s", exc)
             pipe = r.pipeline(transaction=False)
 
     try:

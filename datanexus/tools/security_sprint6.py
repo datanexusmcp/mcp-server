@@ -603,7 +603,10 @@ def _damerau_levenshtein(s1: str, s2: str) -> int:
         import jellyfish
         return jellyfish.damerau_levenshtein_distance(s1, s2)
     except ImportError:
-        pass
+        log.debug(
+            "jellyfish not available — using pure Python "
+            "Damerau-Levenshtein fallback"
+        )
 
     # Pure Python fallback
     len1, len2 = len(s1), len(s2)

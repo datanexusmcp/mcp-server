@@ -11,5 +11,8 @@ RUN chmod +x start.sh
 
 ENV PYTHONUNBUFFERED=1
 
+RUN adduser --system --uid 1000 --no-create-home --group datanexus
+USER 1000
+
 # start.sh runs dashboard (8101) + MCP server (8000)
 CMD ["./start.sh"]
