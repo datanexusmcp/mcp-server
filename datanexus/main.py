@@ -291,7 +291,19 @@ async def report_feedback(
     intended_query: Annotated[_Optional[str], Field(description='What the agent was trying to accomplish — used when feedback_type=agent_gap. Optional. Max 256 chars.')] = None,
     gap_description: Annotated[_Optional[str], Field(description='What was missing or wrong in the result — used when feedback_type=agent_gap. Optional. Max 256 chars.')] = None,
 ) -> dict:
-    """Report a data quality issue or agent intent gap with a DataNexus tool response. Read-only call. Records feedback for human and AI review. tool_id: Tool identifier e.g. T04 or security_fetch_cve_detail. Required. query_hash: Hash from the response being reported. Required. Found in the query_hash field of any response. signal: One of incorrect_data, missing_field, stale_data, not_useful, wrong_entity, or data_quality. Required for user_feedback. feedback_type: user_feedback (default) or agent_gap. Use agent_gap when the tool returned a valid 200 response but the result did not serve the user's actual need. intended_query: What the agent was trying to accomplish — used when feedback_type=agent_gap. Optional. Max 256 chars. gap_description: What was missing or wrong in the result — used when feedback_type=agent_gap. Optional. Max 256 chars. comment: Description of the issue. Optional. Max 500 characters. missing_fields: List of field names that are absent or wrong. Optional. Call this after receiving a result that appears wrong, outdated, or incomplete. Do not call this to report network errors — those resolve on retry. If this tool response did not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="{this_tool_id}", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    """Report a data quality issue or agent intent gap for a DataNexus tool response.
+
+    tool_id: e.g. "T10" or "security_fetch_cve_detail".
+    query_hash: From the query_hash field of the response.
+    signal: incorrect_data | missing_field | stale_data | not_useful | wrong_entity | data_quality.
+    comment: Issue description. Max 500 chars.
+    missing_fields: Absent or wrong field names.
+    feedback_type: "user_feedback" (default) or "agent_gap".
+    intended_query: Agent's goal. Max 256 chars.
+    gap_description: What was missing. Max 256 chars.
+
+    Example: report_feedback(tool_id="T10", query_hash="abc123", signal="incorrect_data")
+    """
     return await _real_report_feedback(
         tool_id, query_hash, signal, comment, missing_fields,
         feedback_type=feedback_type,
@@ -303,7 +315,14 @@ async def report_feedback(
 async def report_mcpize_link(
     tool_id: Annotated[str, Field(description='DataNexus tool identifier to check, e.g. "T01", "T07", "T10" — pass the ID of the tool the user is asking about.')],
 ) -> dict:
-    """Returns the MCPize subscription status and payment tier for the current DataNexus API key. Read-only. No side effects. Idempotent. tool_id: DataNexus tool identifier to check (e.g. "T01", "T07", "T10") — pass the ID of the tool the user is asking about; unknown or test values always return a structured response, never raise an exception. Output fields: status (str) — "free" (tool is in free window, no subscription needed), "subscription_required" (paid MCPize plan required, see upgrade_url), or "not_configured" (payment active but tool not yet listed on MCPize); message (str) — human-readable explanation; tool_id (str) — echoes the input; upgrade_url (str) — MCPize checkout URL, present only when status="subscription_required". Example free-window response: {"status": "free", "message": "This tool is currently in its free window. No subscription required.", "tool_id": "T10"}. Example paid response: {"status": "subscription_required", "message": "A subscription is required to access this tool.", "upgrade_url": "https://mcpize.com/checkout/...", "tool_id": "T10"}. Call this when the user asks about their subscription, plan tier, usage limits, or billing status. Do not call this to validate data quality — use validate_tool_output or report_feedback for data issues. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="report_mcpize_link", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    """Check MCPize subscription status for a DataNexus tool.
+
+    tool_id: DataNexus tool identifier e.g. "T10". Pass the tool the user is asking about.
+
+    Returns: status ("free" | "subscription_required" | "not_configured"), message, tool_id, and upgrade_url when subscription is required.
+
+    Example: report_mcpize_link(tool_id="T10")
+    """
     return _real_report_mcpize_link(tool_id)
 
 

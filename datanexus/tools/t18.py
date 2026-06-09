@@ -186,7 +186,20 @@ async def search_contract_awards(
     date_from: Annotated[str, Field(description="Earliest award date ISO 8601 e.g. 2024-01-31. Optional.")] = "",
     jurisdiction: Annotated[str, Field(description="Jurisdiction: US, EU, or UK. Default US. Optional.")] = "US",
 ) -> dict:
-    """Search government contract awards by keyword, agency, and date range. Read-only. No side effects. Idempotent. keyword: Search terms describing the contract scope e.g. cybersecurity software. Required. agency: Awarding agency name e.g. Department of Defense. Optional, defaults to all agencies. date_from: Earliest award date in ISO 8601 format e.g. 2024-01-31. Optional, defaults to all dates. jurisdiction: One of US, EU, or UK. Optional. Default US. Returns award amounts, recipient vendors, NAICS codes, and award dates. Use this when exploring the competitive landscape for a topic area. Use govcon_fetch_vendor_contract_history instead when you need all contracts for a specific vendor. Use govcon_fetch_open_solicitations instead when you need active bids not past awards. Verified source: USASpending.gov + SAM.gov. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="govcon_search_contract_awards", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    """Search government contract awards by keyword, agency, and date range.
+
+    keyword: Contract scope e.g. "cybersecurity software".
+    agency: Awarding agency e.g. "Department of Defense". Optional.
+    date_from: Earliest award date ISO 8601 e.g. "2024-01-31". Optional.
+    jurisdiction: "US", "EU", or "UK". Default "US".
+
+    Returns: award amounts, recipient vendors, NAICS codes, award dates.
+    Use govcon_fetch_vendor_contract_history for all contracts by a specific vendor.
+    Use govcon_fetch_open_solicitations for active bids, not past awards.
+    Source: USASpending.gov + SAM.gov. 4-hour cache.
+
+    Example: search_contract_awards(keyword="cybersecurity software", agency="Department of Defense")
+    """
     _t0 = time.monotonic()
     _success = False
     _error_code = None

@@ -1255,7 +1255,17 @@ async def fetch_cisa_kev(cve_id: Annotated[str, Field(description="CVE identifie
 @with_timeout
 @verify_entitlement("T10")
 async def fetch_cve_epss(cve_id: Annotated[str, Field(description="CVE identifier e.g. CVE-2021-44228. Required.")]) -> dict:
-    """EPSS (Exploit Prediction Scoring System) is a probability score (0.0–1.0) predicting the likelihood a CVE will be exploited in the wild within the next 30 days — CVSS measures severity, EPSS measures urgency. Read-only. No side effects. Idempotent. cve_id: CVE identifier in format CVE-YYYY-NNNNN e.g. CVE-2021-44228. Required. Returns epss (float 0.0–1.0) and percentile (float 0.0–100.0). Score thresholds: >0.7 = high risk (patch immediately), 0.3–0.7 = medium risk (patch soon), <0.3 = low risk (monitor). Example: security_fetch_cve_epss(cve_id="CVE-2021-44228") → epss: 0.975, percentile: 99.7 (Log4Shell — extremely high exploitation likelihood). Use alongside security_fetch_cve_detail for prioritizing which vulnerabilities to patch first — a CVE with CVSS 9.8 but EPSS 0.02 is theoretical risk; CVSS 7.5 with EPSS 0.94 needs immediate action. Verified source: FIRST.org EPSS API. 6-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_cve_epss", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    """EPSS exploit probability score for a CVE — predicts likelihood of exploitation in the next 30 days.
+
+    cve_id: CVE identifier e.g. "CVE-2021-44228".
+
+    Returns: epss (float 0.0–1.0) and percentile (float 0.0–100.0).
+    Thresholds: >0.7 patch immediately, 0.3–0.7 patch soon, <0.3 monitor.
+    Use with security_fetch_cve_detail to prioritize patching — EPSS measures urgency, CVSS measures severity.
+    Source: FIRST.org. 6-hour cache.
+
+    Example: fetch_cve_epss(cve_id="CVE-2021-44228")
+    """
     _t0 = time.monotonic()
     _success = False
     _error_code = None

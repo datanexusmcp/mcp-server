@@ -847,7 +847,18 @@ async def fetch_subdomains(domain: Annotated[str, Field(description="Domain with
 @with_timeout
 @verify_entitlement("T07")
 async def check_email_security(domain: Annotated[str, Field(description="Domain without protocol e.g. google.com. Required.")]) -> dict:
-    """Checks whether a domain has properly configured email authentication (SPF, DMARC, DKIM) to prevent spoofing and phishing. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. google.com. Required. SPF (Sender Policy Framework): sender IP allowlist specifying which servers may send email for the domain — scored -all=10 (strict, recommended), ~all=7 (soft fail), ?all=4 (neutral), none=2 (no policy), +all=0 (open relay, insecure). DMARC (Domain-based Message Authentication): policy for failed auth — p=reject=10 (block), p=quarantine=7 (spam folder), p=none=4 (monitor only), absent=0; +1 bonus for rua reporting address set. DKIM (DomainKeys Identified Mail): cryptographic signature proving message integrity and sender authenticity — any selector found=10 (pass), none found=0 (fail). Returns scored assessment; each component scored 0–10; overall grade A–F. Example: domain_check_email_security(domain="google.com") → {overall_grade, spf_score, dmarc_score, dkim_score, spf_record, dmarc_record, dkim_selectors_found}; grade reflects live DNS at query time. Checks 10 common DKIM selectors in parallel. Verified source: Cloudflare DoH. No cache (live DNS). If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_check_email_security", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    """Check SPF, DMARC, and DKIM email authentication for a domain.
+
+    domain: Domain without protocol e.g. "google.com".
+
+    Returns: overall_grade (A–F), spf_score, dmarc_score, dkim_score (each 0–10), spf_record, dmarc_record, dkim_selectors_found. Scores reflect live DNS via Cloudflare DoH — no cache.
+
+    SPF: -all=10 (strict), ~all=7, ?all=4, none=2, +all=0 (open relay).
+    DMARC: p=reject=10, p=quarantine=7, p=none=4, absent=0; +1 for rua set.
+    DKIM: selector found=10, none=0. Checks 10 common selectors in parallel.
+
+    Example: check_email_security(domain="google.com")
+    """
     _t0 = time.monotonic()
     _success = False
     _error_code = None
