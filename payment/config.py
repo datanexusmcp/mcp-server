@@ -113,9 +113,17 @@ GLAMA_API_KEY: str = os.environ.get("DATANEXUS_GLAMA_KEY", "dn-glama-internal")
 RESERVED_KEYS: set = {SMOKE_API_KEY, OWNER_API_KEY, GLAMA_API_KEY}
 
 # HARD_LIMIT=11: block starts at call 11; users receive calls 1-10.
+# Anonymous (no valid registered API key) — IP-bucketed.
 WEEK_LIMIT: int = 10
 NUDGE_AT: int = 8
 HARD_LIMIT: int = 11  # serve call 10, hard block at 11
+
+# Registered (valid API key, tier='free') — key-bucketed.
+# 10x the anonymous limit: signing up for a free key is an immediate,
+# tangible unlock (not just a "notify me later" placeholder).
+WEEK_LIMIT_REGISTERED: int = 100
+NUDGE_AT_REGISTERED: int = 90
+HARD_LIMIT_REGISTERED: int = 101  # serve call 100, hard block at 101
 
 
 def _ip_in_cidrs(ip: str, cidrs: List[str]) -> bool:

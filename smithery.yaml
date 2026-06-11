@@ -13,7 +13,7 @@ description: >
   legal/patents (EPO OPS + USPTO + WIPO),
   govcon (USASpending.gov + SAM.gov),
   regulatory (Regulations.gov + Federal Register).
-  Free tier: 100 calls/month anonymous, 500 with free API key.
+  Free tier: 10 calls/week anonymous, 100/week with free API key.
   Use search_datanexus_tools first. Token-efficient AI-Ready Markdown.
 
 version: 2.4.0
@@ -308,8 +308,8 @@ tools:
   - name: apikeys_generate_api_key
     description: >
       Generate a free DataNexus API key (dnx_...) tied to your email.
-      Registered users get 500 calls/month instead of 100.
-      Pass the key as X-DataNexus-Key header on future requests.
+      Registered users get 100 calls/week instead of 10.
+      Pass the key as X-Api-Key header on future requests.
       Rate limit: 3 keys per IP per 24 hours. No auth required.
 
   - name: apikeys_rotate_api_key

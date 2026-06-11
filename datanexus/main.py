@@ -45,7 +45,7 @@ from starlette.responses import JSONResponse
 
 from pydantic import Field
 
-from datanexus.core.request_context import api_key_var, call_type_var, client_ip_var, is_organic_var
+from datanexus.core.request_context import api_key_var, call_type_var, client_ip_var, is_organic_var, tier_var
 
 
 class _ClientIPMiddleware:
@@ -146,6 +146,7 @@ class _ApiKeyMiddleware:
 
             key_is_valid = False
             key_hash = None
+            tier = None
 
             if raw_key:
                 if raw_key in RESERVED_KEYS:
@@ -164,6 +165,7 @@ class _ApiKeyMiddleware:
             ak_token = api_key_var.set(key_hash if key_is_valid else None)
             ct_token = call_type_var.set(call_type)
             io_token = is_organic_var.set(is_organic)
+            ti_token = tier_var.set(tier if key_is_valid else None)
 
             try:
                 await self.app(scope, receive, send)
@@ -171,6 +173,7 @@ class _ApiKeyMiddleware:
                 api_key_var.reset(ak_token)
                 call_type_var.reset(ct_token)
                 is_organic_var.reset(io_token)
+                tier_var.reset(ti_token)
         else:
             await self.app(scope, receive, send)
 
