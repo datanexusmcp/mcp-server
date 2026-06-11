@@ -472,46 +472,19 @@ async def health(request: Request) -> JSONResponse:
     })
 
 
-# ── OAuth discovery stubs (Sprint 9 P2 — full server deferred to Sprint 10) ──
-_OAUTH_METADATA = {
-    "issuer": "https://datanexusmcp.com",
-    "authorization_endpoint": "https://datanexusmcp.com/oauth/authorize",
-    "token_endpoint": "https://datanexusmcp.com/oauth/token",
-    "scopes_supported": ["mcp:tools"],
-    "code_challenge_methods_supported": ["S256"],
-}
-
-
-@main.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
-async def oauth_protected_resource(request: Request) -> JSONResponse:
-    return JSONResponse(_OAUTH_METADATA)
-
-
-@main.custom_route("/.well-known/oauth-protected-resource/mcp", methods=["GET"])
-async def oauth_protected_resource_mcp(request: Request) -> JSONResponse:
-    return JSONResponse(_OAUTH_METADATA)
-
-
-@main.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
-async def oauth_authorization_server(request: Request) -> JSONResponse:
-    return JSONResponse(_OAUTH_METADATA)
-
-
-_OAUTH_NOT_IMPLEMENTED = {
-    "error": "not_implemented",
-    "message": "OAuth server launches Sprint 10. Use X-Api-Key header.",
-    "eta": "Sprint 10",
-}
-
-
-@main.custom_route("/oauth/authorize", methods=["GET"])
-async def oauth_authorize_stub(request: Request) -> JSONResponse:
-    return JSONResponse(_OAUTH_NOT_IMPLEMENTED, status_code=501)
-
-
-@main.custom_route("/oauth/token", methods=["POST"])
-async def oauth_token_stub(request: Request) -> JSONResponse:
-    return JSONResponse(_OAUTH_NOT_IMPLEMENTED, status_code=501)
+# ── OAuth discovery — REMOVED (T17, 2026-06-10) ──────────────────────────────
+# Previously this module advertised OAuth support via .well-known/oauth-*
+# metadata routes (200 OK, valid-looking authorization_endpoint/token_endpoint)
+# while /oauth/authorize and /oauth/token returned 501 "not implemented" and
+# no /register (RFC 7591 dynamic client registration) endpoint existed at all.
+# MCP clients that do OAuth-discovery-first (e.g. Claude Desktop's standard
+# connector flow) saw the metadata, attempted dynamic client registration,
+# got a 404, and failed with "Couldn't register with <server>'s sign-in
+# service" — BEFORE ever falling back to X-Api-Key / configSchema apiKey.
+# Removing these routes entirely (404) makes well-behaved MCP clients skip
+# OAuth and go straight to the API-key/configSchema auth path, which is the
+# only auth this server actually implements. Re-add only once a real OAuth
+# server (authorize + token + register) ships.
 
 
 # ── MCP manifest (registry discovery) ────────────────────────────────────────

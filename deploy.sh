@@ -17,7 +17,10 @@ ssh datanexus << 'ENDSSH'
   docker compose build --no-cache
   docker compose up -d
   echo "Waiting for services..."
-  sleep 10
+  for i in $(seq 1 30); do
+    curl -sf https://datanexusmcp.com/health && break
+    sleep 2
+  done
   docker compose ps
 ENDSSH
 

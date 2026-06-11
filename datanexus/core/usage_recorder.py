@@ -36,7 +36,7 @@ from typing import Optional
 
 from datanexus.core.activation_detector import UsageRow, check as _activation_check
 from datanexus.core.ip_classifier import classify_ip
-from datanexus.core.request_context import call_type_var, is_organic_var
+from datanexus.core.request_context import api_key_var, call_type_var, is_organic_var
 
 log = logging.getLogger("datanexus.usage_recorder")
 
@@ -146,6 +146,8 @@ async def record_usage(
     # Fall back to ContextVar values if caller didn't pass them explicitly.
     if not call_type:
         call_type = call_type_var.get()
+    if api_key_hash is None:
+        api_key_hash = api_key_var.get()
     if is_smoke:
         call_type = "smoke"
         is_organic = False
