@@ -11,6 +11,12 @@
   "remote": true,
   "license": "MIT",
   "homepage": "https://datanexusmcp.com",
+  "links": [
+      {
+          "type": "smithery",
+          "url": "https://smithery.ai/servers/dev-7bd0/mcp-server"
+      }
+  ],
   "categories": [
     "Data & Analytics",
     "Government & Public Data",

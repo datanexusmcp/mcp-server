@@ -39,7 +39,7 @@ DataNexus is free to use. Usage is tracked per session.
 | Anonymous | 100 | Just connect — no setup |
 | Registered (free) | 500 | Generate a free key (see below) |
 
-Every response includes a `usage` field showing your current month's count against your limit. When you approach your limit, responses include an `upgrade_hint` pointing to [datanexusmcp.com/key](https://datanexusmcp.com/key).
+Every response includes a `usage` field showing your current month's count against your limit. When you approach your limit, responses include an `upgrade_hint` pointing to [datanexusmcp.com](https://datanexusmcp.com).
 
 ### Getting a free API key (5× more calls)
 

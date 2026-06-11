@@ -73,3 +73,5 @@ datanexus/core/request_context.py
 datanexus/**/*.sql
 datanexus/db/migrations/*.sql
 datanexus/core/db_migrations/*.sql
+key.pem
+MCP_PUBLISH_STEPS.md
