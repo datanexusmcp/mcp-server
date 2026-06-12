@@ -377,7 +377,22 @@ Added CISA KEV, EPSS, and SBOM audit tools (35 tools total).
 ---
 
 ## License
-MIT — see [LICENSE](LICENSE)
+
+DataNexus MCP is licensed under the [Business Source License 1.1](LICENSE).
+
+**What this means in plain English:**
+
+- ✅ Free to use for personal projects, research, and self-hosting your own instance
+- ✅ Free to read, modify, and learn from the source code
+- ✅ Converts automatically to Apache 2.0 on 2030-06-11 — no strings attached after that
+- ❌ Cannot be used to offer a competing hosted data intelligence service without a commercial license
+
+**Why BSL and not MIT?**
+
+We're building a sustainable hosted service on top of this codebase. BSL lets us keep the source open and auditable — important for a tool handling compliance and security data — while protecting the ability to fund continued development.
+
+If you want to run a commercial service using DataNexus internals, [get in touch](mailto:info@datanexusmcp.com). If you're self-hosting for your own agents, you're fully covered at no charge.
+
 
 ---
 

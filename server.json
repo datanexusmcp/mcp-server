@@ -3,8 +3,8 @@
   "name": "com.datanexusmcp/mcp-server",
   "title": "DataNexus MCP",
   "description": "Public data intelligence for AI agents — CVE, compliance, patents, contracts, domains.",
-  "version": "2.4.7",
-  "license": "MIT",
+  "version": "2.4.9",
+  "license": "SEE LICENSE IN LICENSE",
   "mcpName": "com.datanexusmcp/mcp-server",
   "remotes": [
     {
