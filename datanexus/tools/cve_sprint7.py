@@ -34,7 +34,7 @@ from fastmcp import FastMCP
 from datanexus.core.audit import AuditContext, standard_response_fields
 from datanexus.core.schema import ErrorCode, error_response
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call
+from datanexus.analytics import fire_and_forget, track_tool_call
 from datanexus.tools._cve_utils import (
     _fetch_cve_detail_util,
     _fetch_cisa_kev_util,
@@ -288,7 +288,7 @@ async def fetch_cve_risk_summary(cve_id: Annotated[str, Field(description="CVE i
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_cve_risk_summary",
             success=_success,

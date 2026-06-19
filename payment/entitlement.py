@@ -42,7 +42,7 @@ import payment.config as _cfg
 # Usage instrumentation — non-billing additions (approved by operator in chat).
 # These imports are the ONLY changes to this file outside the wrapper finally block.
 # All six billing check conditions and their logic are untouched.
-from datanexus.core.request_context import client_ip_var
+from datanexus.core.request_context import client_ip_var, usage_recorded_var
 from datanexus.core.usage_recorder import record_usage
 
 log = logging.getLogger("payment.entitlement")
@@ -55,6 +55,25 @@ _redis_client: Optional[redis_lib.Redis] = None
 
 # Injectable caller_id for tests (replaces UUID generation)
 _test_caller_id: Optional[str] = None
+
+# ── Background task registry ──────────────────────────────────────────────────
+# Prevents premature GC of fire-and-forget record_usage() tasks under
+# stateless_http=True. Same pattern as datanexus/core/entitlement.py.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _fire_and_forget(coro) -> asyncio.Task:
+    task = asyncio.ensure_future(coro)
+    _background_tasks.add(task)
+
+    def _on_done(t: asyncio.Task) -> None:
+        _background_tasks.discard(t)
+        exc = t.exception() if not t.cancelled() else None
+        if exc is not None:
+            log.warning("Background task failed (non-fatal): %s", exc)
+
+    task.add_done_callback(_on_done)
+    return task
 
 
 def _set_redis_client(client: Optional[redis_lib.Redis]) -> None:
@@ -246,8 +265,9 @@ def verify_entitlement(tool_id: str) -> Callable:
             finally:
                 _latency_ms = int((time.monotonic() - _t0) * 1000)
                 _client_ip = client_ip_var.get()   # 'unknown' outside HTTP context
-                # Fire-and-forget — never blocks the tool response
-                asyncio.ensure_future(record_usage(
+                # Fire-and-forget — never blocks the tool response.
+                # Uses _fire_and_forget() to prevent premature GC under stateless_http=True.
+                _fire_and_forget(record_usage(
                     tool_id=tool_id,
                     session_id=caller_id,
                     tool_input=kwargs,
@@ -256,6 +276,9 @@ def verify_entitlement(tool_id: str) -> Callable:
                     error_msg=_error_msg,
                     latency_ms=_latency_ms,
                 ))
+                # Signal to _UsageMiddleware that this call is already recorded,
+                # preventing double-counting for tools that use @verify_entitlement.
+                usage_recorded_var.set(True)
 
         return wrapper
     return decorator

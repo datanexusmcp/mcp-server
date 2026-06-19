@@ -12,6 +12,33 @@ from datanexus.core.request_context import api_key_var, call_type_var, client_ip
 
 log = logging.getLogger(__name__)
 
+# ── Background task registry ──────────────────────────────────────────────────
+# Same GC-safe fire-and-forget pattern as entitlement.py. Keeps strong
+# references to per-request track_tool_call() tasks so they survive until
+# completion under stateless_http=True.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def fire_and_forget(coro) -> asyncio.Task:
+    """
+    Schedule a coroutine as a background task with a strong reference held
+    until completion, preventing premature GC. Logs (but never raises) on
+    task failure. Use instead of bare asyncio.create_task() for per-request
+    fire-and-forget work.
+    """
+    task = asyncio.ensure_future(coro)
+    _background_tasks.add(task)
+
+    def _on_done(t: asyncio.Task) -> None:
+        _background_tasks.discard(t)
+        exc = t.exception() if not t.cancelled() else None
+        if exc is not None:
+            log.warning("Background task failed (non-fatal): %s", exc)
+
+    task.add_done_callback(_on_done)
+    return task
+
+
 # Lazy import — PostHog only loaded if key is set
 _ph = None
 _enabled = False

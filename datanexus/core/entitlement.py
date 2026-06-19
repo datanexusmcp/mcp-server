@@ -55,6 +55,34 @@ _COUNTER_TTL = 35 * 86400  # 35 days
 
 _redis_client: Optional[redis_lib.Redis] = None
 
+# ── Background task registry ──────────────────────────────────────────────────
+# Strong references to fire-and-forget record_usage() tasks. Without this,
+# asyncio.ensure_future() results can be garbage-collected before the event
+# loop runs them — especially under stateless_http=True where each request's
+# scope may tear down immediately after the response is sent. Tasks remove
+# themselves from this set automatically on completion via add_done_callback.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _fire_and_forget(coro) -> asyncio.Task:
+    """
+    Schedule a coroutine as a background task WITHOUT risking premature
+    garbage collection. Keeps a strong reference in _background_tasks until
+    the task completes, then discards it. Logs (but never raises) if the
+    task itself raised an exception.
+    """
+    task = asyncio.ensure_future(coro)
+    _background_tasks.add(task)
+
+    def _on_done(t: asyncio.Task) -> None:
+        _background_tasks.discard(t)
+        exc = t.exception() if not t.cancelled() else None
+        if exc is not None:
+            log.warning("Background task failed (non-fatal): %s", exc)
+
+    task.add_done_callback(_on_done)
+    return task
+
 
 def _get_redis() -> Optional[redis_lib.Redis]:
     """Lazy Redis connection. Returns None if unavailable — never raises."""
@@ -186,8 +214,10 @@ def verify_entitlement(tool_id: str) -> Callable:
             finally:
                 _latency_ms = int((time.monotonic() - _t0) * 1000)
                 _client_ip = client_ip_var.get()   # 'unknown' outside HTTP context
-                # Fire-and-forget — never blocks the tool response
-                asyncio.ensure_future(record_usage(
+                # Fire-and-forget — never blocks the tool response.
+                # Uses _fire_and_forget() to hold a strong reference until
+                # completion, preventing premature GC under stateless_http=True.
+                _fire_and_forget(record_usage(
                     tool_id=tool_id,
                     session_id=session_id,
                     tool_input=kwargs,

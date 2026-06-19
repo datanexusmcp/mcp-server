@@ -25,7 +25,7 @@ from fastmcp import FastMCP
 from datanexus.core.audit import AuditContext, standard_response_fields
 from datanexus.core.schema import ErrorCode, error_response
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call
+from datanexus.analytics import fire_and_forget, track_tool_call
 from datanexus.tools.security_sprint6 import _damerau_levenshtein
 from datanexus.tools._security_utils import _fetch_vulns, _fetch_licence, _resolve_version
 from datanexus.tools._maintainer_utils import _fetch_maintainer_history
@@ -163,7 +163,7 @@ async def detect_typosquatting(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T20",
             tool_name="frontend_security_detect_typosquatting",
             success=_success,
@@ -341,7 +341,7 @@ async def audit_manifest(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T20",
             tool_name="frontend_security_audit_manifest",
             success=_success,
@@ -422,7 +422,7 @@ async def audit_ci_pipeline(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T20",
             tool_name="frontend_security_audit_ci_pipeline",
             success=_success,
@@ -515,7 +515,7 @@ async def fetch_package_risk_brief(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T20",
             tool_name="frontend_security_fetch_package_risk_brief",
             success=_success,

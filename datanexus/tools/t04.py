@@ -40,7 +40,7 @@ from pydantic import Field
 import httpx
 from fastmcp import FastMCP
 
-from datanexus.analytics import track_tool_call, track_tool_error
+from datanexus.analytics import fire_and_forget, track_tool_call, track_tool_error
 
 from datanexus.core.audit import (
     AuditContext,
@@ -227,7 +227,7 @@ async def fetch_nonprofit_by_ein(ein: Annotated[str, Field(description="EIN in f
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T04",
             tool_name="fetch_nonprofit_by_ein",
             success=_success,
@@ -324,7 +324,7 @@ async def search_nonprofits_by_name(name: Annotated[str, Field(description="Orga
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T04",
             tool_name="search_nonprofits_by_name",
             success=_success,
@@ -476,7 +476,7 @@ async def fetch_charity_uk(charity_number_or_name: Annotated[str, Field(descript
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T04",
             tool_name="fetch_charity_uk",
             success=_success,

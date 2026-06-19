@@ -54,7 +54,7 @@ from datanexus.core.circuit_breaker import (
 from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call, track_tool_error
+from datanexus.analytics import fire_and_forget, track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t07")
 
@@ -257,7 +257,7 @@ async def fetch_domain_rdap(domain: Annotated[str, Field(description="Domain wit
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T07",
             tool_name="fetch_domain_rdap",
             success=_success,
@@ -391,7 +391,7 @@ async def fetch_ssl_certificate_chain(domain: Annotated[str, Field(description="
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T07",
             tool_name="fetch_ssl_certificate_chain",
             success=_success,
@@ -506,7 +506,7 @@ async def fetch_dns_records(domain: Annotated[str, Field(description="Domain wit
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T07",
             tool_name="fetch_dns_records",
             success=_success,
@@ -644,7 +644,7 @@ async def fetch_domain_history(domain: Annotated[str, Field(description="Domain 
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T07",
             tool_name="fetch_domain_history",
             success=_success,
@@ -829,7 +829,7 @@ async def fetch_subdomains(domain: Annotated[str, Field(description="Domain with
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T07",
             tool_name="fetch_subdomains",
             success=_success,
@@ -992,7 +992,7 @@ async def check_email_security(domain: Annotated[str, Field(description="Domain 
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T07",
             tool_name="check_email_security",
             success=_success,
@@ -1208,7 +1208,7 @@ async def fetch_reverse_ip(domain_or_ip: Annotated[str, Field(description="Domai
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T07",
             tool_name="fetch_reverse_ip",
             success=_success,

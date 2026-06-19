@@ -27,7 +27,7 @@ from fastmcp import FastMCP
 from datanexus.core.audit import AuditContext, standard_response_fields
 from datanexus.core.schema import ErrorCode, error_response
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call
+from datanexus.analytics import fire_and_forget, track_tool_call
 from datanexus.tools._circuit_breakers import _spdx_breaker
 from datanexus.tools._licence_compat import get_compatibility, STATIC_LICENCES
 from datanexus.tools._security_utils import _fetch_licence
@@ -198,7 +198,7 @@ async def fetch_licence_analysis(spdx_id: Annotated[str, Field(description="SPDX
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_licence_analysis",
             success=_success,
@@ -471,7 +471,7 @@ async def audit_licence_compatibility(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="audit_licence_compatibility",
             success=_success,

@@ -25,7 +25,7 @@ from datanexus.core.audit import AuditContext, standard_response_fields
 from datanexus.core.request_context import api_key_var
 from datanexus.core.schema import ErrorCode, error_response
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call
+from datanexus.analytics import fire_and_forget, track_tool_call
 from datanexus.tools._sbom_utils import extract_components
 from payment.entitlement import verify_entitlement
 
@@ -182,7 +182,7 @@ async def audit_sbom_license_policy(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="audit_sbom_license_policy",
             success=_success,
@@ -315,7 +315,7 @@ async def fetch_cve_watch_status(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_cve_watch_status",
             success=_success,

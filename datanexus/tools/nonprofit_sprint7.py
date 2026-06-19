@@ -29,7 +29,7 @@ from fastmcp import FastMCP
 from datanexus.core.audit import AuditContext, standard_response_fields
 from datanexus.core.schema import ErrorCode, error_response
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call
+from datanexus.analytics import fire_and_forget, track_tool_call
 from datanexus.tools._circuit_breakers import _propublica_breaker
 from datanexus.tools._nonprofit_utils import calculate_health_score
 from payment.entitlement import verify_entitlement
@@ -244,7 +244,7 @@ async def search_nonprofits_by_category(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T04",
             tool_name="search_nonprofits_by_category",
             success=_success,
@@ -496,7 +496,7 @@ async def fetch_nonprofit_financial_trends(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T04",
             tool_name="fetch_nonprofit_financial_trends",
             success=_success,

@@ -59,7 +59,7 @@ from datanexus.ingest.t10_worker import (
     _normalise_osv_ecosystem,
     _strip_unsafe_fields,
 )
-from datanexus.analytics import track_tool_call, track_tool_error
+from datanexus.analytics import fire_and_forget, track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t10")
 
@@ -388,7 +388,7 @@ async def fetch_package_vulnerabilities(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_package_vulnerabilities",
             success=_success,
@@ -567,7 +567,7 @@ async def fetch_dependency_graph(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_dependency_graph",
             success=_success,
@@ -771,7 +771,7 @@ async def fetch_cve_detail(cve_id: Annotated[str, Field(description="CVE identif
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_cve_detail",
             success=_success,
@@ -915,7 +915,7 @@ async def audit_sbom_vulnerabilities(sbom_json: Annotated[str, Field(description
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="audit_sbom_vulnerabilities",
             success=_success,
@@ -1063,7 +1063,7 @@ async def fetch_package_licence(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_package_licence",
             success=_success,
@@ -1237,7 +1237,7 @@ async def fetch_cisa_kev(cve_id: Annotated[str, Field(description="CVE identifie
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_cisa_kev",
             success=_success,
@@ -1427,7 +1427,7 @@ async def fetch_cve_epss(cve_id: Annotated[str, Field(description="CVE identifie
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_cve_epss",
             success=_success,

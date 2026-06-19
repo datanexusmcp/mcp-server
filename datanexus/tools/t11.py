@@ -55,7 +55,7 @@ from datanexus.core.circuit_breaker import (
 from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call, track_tool_error
+from datanexus.analytics import fire_and_forget, track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t11")
 
@@ -515,7 +515,7 @@ async def fetch_patent_by_number(patent_number: Annotated[str, Field(description
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T11",
             tool_name="fetch_patent_by_number",
             success=_success,
@@ -682,7 +682,7 @@ async def search_patents_by_keyword(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T11",
             tool_name="search_patents_by_keyword",
             success=_success,
@@ -859,7 +859,7 @@ async def fetch_patent_citations(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T11",
             tool_name="fetch_patent_citations",
             success=_success,
@@ -999,7 +999,7 @@ async def fetch_inventor_portfolio(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T11",
             tool_name="fetch_inventor_portfolio",
             success=_success,

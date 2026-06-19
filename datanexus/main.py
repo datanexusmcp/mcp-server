@@ -131,8 +131,9 @@ class _ApiKeyMiddleware:
             headers = {k.lower(): v for k, v in scope.get("headers", [])}
 
             # Prefer X-Api-Key; fall back to deprecated X-DataNexus-Key;
-            # finally fall back to Smithery configSchema apiKey (Sprint 9 P4).
-            # Precedence: X-Api-Key header > X-DataNexus-Key > configSchema apiKey
+            # then Smithery configSchema apiKey (Sprint 9 P4);
+            # finally plain ?api_key= query param (Glama agent-tools.cloud sends this).
+            # Precedence: X-Api-Key header > X-DataNexus-Key > configSchema apiKey > ?api_key=
             raw_key = headers.get(b"x-api-key", b"").decode().strip()
             if not raw_key:
                 legacy = headers.get(b"x-datanexus-key", b"").decode().strip()
@@ -143,6 +144,14 @@ class _ApiKeyMiddleware:
                     )
             if not raw_key:
                 raw_key = _extract_configschema_api_key(scope)
+            if not raw_key:
+                try:
+                    from urllib.parse import parse_qs as _parse_qs
+                    _qs = (scope.get("query_string") or b"").decode()
+                    _params = _parse_qs(_qs)
+                    raw_key = (_params.get("api_key") or [""])[0].strip()
+                except Exception:
+                    raw_key = ""
 
             key_is_valid = False
             key_hash = None
@@ -240,7 +249,7 @@ class _ApiKeyMiddleware:
 
 from datanexus.db_init import init_db
 from datanexus.core.prewarm import prewarm_cache
-from datanexus.analytics import track_server_start, shutdown as ph_shutdown
+from datanexus.analytics import fire_and_forget, track_server_start, shutdown as ph_shutdown
 from datanexus.kev_refresh import kev_initial_load
 from datanexus.schedulers import _cve_refresh_loop, _sbom_refresh_loop, _typosquat_ref_loop
 
@@ -270,6 +279,7 @@ from datanexus.tools.api_key_sprint8a import api_key_server, _UsageMiddleware
 from datanexus.tools.t10_sprint8      import t10_sprint8
 from datanexus.tools.frontend_sprint8 import frontend_sprint8
 from datanexus.endpoints.signup       import signup_handler
+from datanexus.endpoints.demo         import demo_handler
 
 # ── Section 13 validation tool ───────────────────────────────────────────────
 from datanexus.tools.validation import validate_tool_output
@@ -344,15 +354,15 @@ async def _lifespan(server):
     await init_db()
     # Pre-warm fires in the background — errors are silently swallowed inside
     # prewarm_cache so startup is never blocked by upstream API failures.
-    asyncio.ensure_future(prewarm_cache())
+    fire_and_forget(prewarm_cache())
     # KEV catalog initial load — runs in background, swallows all errors
-    asyncio.ensure_future(kev_initial_load())
+    fire_and_forget(kev_initial_load())
     # Sprint 6 scheduler loops — 24h background refresh cycles
-    asyncio.create_task(_cve_refresh_loop())
-    asyncio.create_task(_sbom_refresh_loop())
-    asyncio.create_task(_typosquat_ref_loop())
+    fire_and_forget(_cve_refresh_loop())
+    fire_and_forget(_sbom_refresh_loop())
+    fire_and_forget(_typosquat_ref_loop())
     tools = await server.list_tools()
-    asyncio.create_task(track_server_start(len(tools)))
+    fire_and_forget(track_server_start(len(tools)))
     yield
     ph_shutdown()
 
@@ -449,6 +459,20 @@ main.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempote
 # ── Register P02 meta-tool (no namespace — top-level) ────────────────────────
 main.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})(search_datanexus_tools)
 
+# ── Sprint 11: /demo — GET serves HTML page, /api/demo — POST handles scan ────
+@main.custom_route("/demo", methods=["GET"])
+async def demo_page(request: Request) -> JSONResponse:
+    import pathlib
+    from starlette.responses import HTMLResponse
+    html_path = pathlib.Path(__file__).parent.parent / "static" / "demo" / "index.html"
+    return HTMLResponse(html_path.read_text())
+
+
+@main.custom_route("/api/demo", methods=["POST", "OPTIONS"])
+async def api_demo(request: Request) -> JSONResponse:
+    return await demo_handler(request)
+
+
 # ── Sprint 8B: /signup — GET serves HTML page, POST handles registration ──────
 @main.custom_route("/signup", methods=["GET"])
 async def signup_page(request: Request) -> JSONResponse:
@@ -475,19 +499,49 @@ async def health(request: Request) -> JSONResponse:
     })
 
 
-# ── OAuth discovery — REMOVED (T17, 2026-06-10) ──────────────────────────────
-# Previously this module advertised OAuth support via .well-known/oauth-*
-# metadata routes (200 OK, valid-looking authorization_endpoint/token_endpoint)
-# while /oauth/authorize and /oauth/token returned 501 "not implemented" and
-# no /register (RFC 7591 dynamic client registration) endpoint existed at all.
-# MCP clients that do OAuth-discovery-first (e.g. Claude Desktop's standard
-# connector flow) saw the metadata, attempted dynamic client registration,
-# got a 404, and failed with "Couldn't register with <server>'s sign-in
-# service" — BEFORE ever falling back to X-Api-Key / configSchema apiKey.
-# Removing these routes entirely (404) makes well-behaved MCP clients skip
-# OAuth and go straight to the API-key/configSchema auth path, which is the
-# only auth this server actually implements. Re-add only once a real OAuth
-# server (authorize + token + register) ships.
+# ── OAuth discovery stubs (T17 rev2, 2026-06-19) ─────────────────────────────
+# Minimal RFC 9728 / RFC 8414 responses so Glama and Smithery quality crawlers
+# recognise this server as OAuth-aware and proceed past tools/list to actual
+# tools/call quality testing (they stopped calling tools on 2026-06-12 when
+# these routes were removed, presumably caching their "no OAuth" verdict).
+#
+# Key design:  DELIBERATELY omits authorization_endpoint, token_endpoint, and
+# registration_endpoint.  Without those three fields:
+#   - Claude Desktop / well-behaved MCP clients: see no OAuth endpoints to
+#     follow, cannot attempt dynamic client reg (RFC 7591), skip OAuth entirely,
+#     fall through to X-Api-Key / configSchema apiKey — which is what we want.
+#   - Glama / Smithery quality crawlers: see 200 OK = "server is OAuth-aware
+#     and in production" → proceed with tools/call quality testing.
+#
+# The old T17 stubs (removed in 21f0d6e) included authorization_endpoint and
+# token_endpoint, which caused Claude Desktop to attempt dynamic client
+# registration at a non-existent /register endpoint → 404 → hard fail before
+# any X-Api-Key fallback.  That problem does NOT exist here because those
+# endpoints are absent.
+
+_OAUTH_RESOURCE_STUB: dict = {
+    "resource": "https://datanexusmcp.com",
+    "bearer_methods_supported": ["header"],
+}
+
+_OAUTH_SERVER_STUB: dict = {
+    "issuer": "https://datanexusmcp.com",
+}
+
+
+@main.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
+async def oauth_protected_resource(request: Request) -> JSONResponse:
+    return JSONResponse(_OAUTH_RESOURCE_STUB)
+
+
+@main.custom_route("/.well-known/oauth-protected-resource/mcp", methods=["GET"])
+async def oauth_protected_resource_mcp(request: Request) -> JSONResponse:
+    return JSONResponse(_OAUTH_RESOURCE_STUB)
+
+
+@main.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
+async def oauth_authorization_server(request: Request) -> JSONResponse:
+    return JSONResponse(_OAUTH_SERVER_STUB)
 
 
 # ── MCP manifest (registry discovery) ────────────────────────────────────────

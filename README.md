@@ -1,10 +1,10 @@
 # DataNexus MCP
-
 [![mcp-server MCP server](https://glama.ai/mcp/servers/datanexusmcp/mcp-server/badges/score.svg)](https://glama.ai/mcp/servers/datanexusmcp/mcp-server)
 [![npm](https://img.shields.io/npm/dm/@datanexusmcp/mcp-server)](https://www.npmjs.com/package/@datanexusmcp/mcp-server)
 [![License: BSL 1.1](https://img.shields.io/badge/license-BSL%201.1-orange.svg)](LICENSE)
-[![Smithery](https://smithery.ai/badge/@datanexusmcp/mcp-server)](https://smithery.ai/servers/dev-7bd0/mcp-server)
+[![smithery badge](https://smithery.ai/badge/dev-7bd0/mcp-server)](https://smithery.ai/servers/dev-7bd0/mcp-server)
 [![ToolRank](https://toolrank.dev/badge/dominant.svg)](https://toolrank.dev/ranking/dev-7bd0/mcp-server)
+[![MCP Index rank](https://mcp.kymatalabs.com/badge/com-datanexusmcp-mcp-server.svg)](https://mcp.kymatalabs.com/s/com-datanexusmcp-mcp-server/)
 
 **55 tools. One URL. Free tier — no credit card.**
 

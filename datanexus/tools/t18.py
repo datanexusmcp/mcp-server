@@ -53,7 +53,7 @@ from datanexus.core.circuit_breaker import (
 )
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call, track_tool_error
+from datanexus.analytics import fire_and_forget, track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t18")
 
@@ -371,7 +371,7 @@ async def search_contract_awards(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T18",
             tool_name="search_contract_awards",
             success=_success,
@@ -520,7 +520,7 @@ No contract history found for this vendor in {juris_clean}.
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T18",
             tool_name="fetch_vendor_contract_history",
             success=_success,
@@ -755,7 +755,7 @@ No open solicitations found for this keyword.
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T18",
             tool_name="fetch_open_solicitations",
             success=_success,

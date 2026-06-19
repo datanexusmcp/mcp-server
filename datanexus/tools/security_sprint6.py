@@ -24,7 +24,7 @@ from fastmcp import FastMCP
 from datanexus.core.audit import AuditContext, make_params_hash, standard_response_fields
 from datanexus.core.schema import ErrorCode, error_response
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call
+from datanexus.analytics import fire_and_forget, track_tool_call
 from datanexus.tools._circuit_breakers import (
     _pypi_stats_breaker,
     _npm_stats_breaker,
@@ -135,7 +135,7 @@ async def fetch_package_maintainer_history(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T10",
             tool_name="fetch_package_maintainer_history",
             success=_success,
@@ -313,7 +313,7 @@ async def fetch_package_risk_brief(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T11",
             tool_name="fetch_package_risk_brief",
             success=_success,
@@ -493,7 +493,7 @@ async def detect_typosquatting(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T15",
             tool_name="detect_typosquatting",
             success=_success,

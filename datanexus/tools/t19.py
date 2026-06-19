@@ -57,7 +57,7 @@ from datanexus.core.circuit_breaker import (
 )
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call, track_tool_error
+from datanexus.analytics import fire_and_forget, track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t19")
 
@@ -387,7 +387,7 @@ No rulemakings found for this keyword and status.
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T19",
             tool_name="search_open_rulemakings",
             success=_success,
@@ -606,7 +606,7 @@ Docket details unavailable from all sources. Try again shortly.
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T19",
             tool_name="fetch_docket_details",
             success=_success,
@@ -772,7 +772,7 @@ No notices found for this agency{' and keyword' if keyword_clean else ''}.
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T19",
             tool_name="fetch_federal_register_notices",
             success=_success,

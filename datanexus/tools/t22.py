@@ -57,7 +57,7 @@ from datanexus.core.circuit_breaker import (
 from datanexus.core.schema import ErrorCode, error_response
 from payment.entitlement import verify_entitlement
 from datanexus.core.timeout import with_timeout
-from datanexus.analytics import track_tool_call, track_tool_error
+from datanexus.analytics import fire_and_forget, track_tool_call, track_tool_error
 
 log = logging.getLogger("datanexus.tools.t22")
 
@@ -247,7 +247,7 @@ async def fetch_npi_provider(npi_number: Annotated[str, Field(description="10-di
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T22",
             tool_name="fetch_npi_provider",
             success=_success,
@@ -361,7 +361,7 @@ async def search_npi_by_name(
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T22",
             tool_name="search_npi_by_name",
             success=_success,
@@ -526,7 +526,7 @@ async def fetch_finra_broker(crd_number: Annotated[str, Field(description="FINRA
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T22",
             tool_name="fetch_finra_broker",
             success=_success,
@@ -646,7 +646,7 @@ async def check_sam_exclusion(name_or_ein: Annotated[str, Field(description="Ent
         raise
     finally:
         _ms = int((time.monotonic() - _t0) * 1000)
-        asyncio.create_task(track_tool_call(
+        fire_and_forget(track_tool_call(
             tool_id="T22",
             tool_name="check_sam_exclusion",
             success=_success,
