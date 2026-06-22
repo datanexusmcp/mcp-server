@@ -5,6 +5,7 @@
 [![smithery badge](https://smithery.ai/badge/dev-7bd0/mcp-server)](https://smithery.ai/servers/dev-7bd0/mcp-server)
 [![ToolRank](https://toolrank.dev/badge/dominant.svg)](https://toolrank.dev/ranking/dev-7bd0/mcp-server)
 [![MCP Index rank](https://mcp.kymatalabs.com/badge/com-datanexusmcp-mcp-server.svg)](https://mcp.kymatalabs.com/s/com-datanexusmcp-mcp-server/)
+[![Socket Badge](https://badge.socket.dev/npm/package/@datanexusmcp/mcp-server/2.4.10)](https://badge.socket.dev/npm/package/@datanexusmcp/mcp-server/2.4.10)
 
 **55 tools. One URL. Free tier — no credit card.**
 

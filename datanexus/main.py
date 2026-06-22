@@ -247,6 +247,67 @@ class _ApiKeyMiddleware:
             return None
 
 
+class _SmitheryEventsMiddleware:
+    """
+    Pure-ASGI middleware — intercepts ai.smithery/events/list and returns
+    {"events": []} so Smithery quality-test bots promote this server from
+    catalog mode (tools/list only) to full quality testing (tools/call).
+
+    Without this, FastMCP returns -32602 Invalid params for this
+    Smithery-proprietary MCP method, which Smithery treats as a protocol
+    failure and keeps the server in catalog mode indefinitely.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path") == "/mcp":
+            # Buffer full body — needed to inspect method, then re-inject downstream
+            chunks = []
+            more = True
+            while more:
+                msg = await receive()
+                chunks.append(msg.get("body", b""))
+                more = msg.get("more_body", False)
+            body = b"".join(chunks)
+
+            try:
+                data = _json.loads(body)
+                if isinstance(data, dict) and data.get("method") == "ai.smithery/events/list":
+                    payload = _json.dumps({
+                        "jsonrpc": "2.0",
+                        "id": data.get("id"),
+                        "result": {"events": []},
+                    }).encode()
+                    await send({
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            (b"content-length", str(len(payload)).encode()),
+                        ],
+                    })
+                    await send({"type": "http.response.body", "body": payload})
+                    return
+            except Exception:
+                pass
+
+            # Re-inject buffered body for downstream FastMCP handler
+            _sent = False
+
+            async def _receive():
+                nonlocal _sent
+                if not _sent:
+                    _sent = True
+                    return {"type": "http.request", "body": body, "more_body": False}
+                return {"type": "http.disconnect"}
+
+            await self.app(scope, _receive, send)
+        else:
+            await self.app(scope, receive, send)
+
+
 from datanexus.db_init import init_db
 from datanexus.core.prewarm import prewarm_cache
 from datanexus.analytics import fire_and_forget, track_server_start, shutdown as ph_shutdown
@@ -566,7 +627,7 @@ if __name__ == "__main__":
         transport="streamable-http",
         host="0.0.0.0",   # nosec B104
         port=8000,
-        middleware=[Middleware(_ClientIPMiddleware), Middleware(_ApiKeyMiddleware)],
+        middleware=[Middleware(_SmitheryEventsMiddleware), Middleware(_ClientIPMiddleware), Middleware(_ApiKeyMiddleware)],
         stateless_http=True,
         json_response=True,
     )
