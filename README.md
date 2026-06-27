@@ -6,10 +6,11 @@
 [![ToolRank](https://toolrank.dev/badge/dominant.svg)](https://toolrank.dev/ranking/dev-7bd0/mcp-server)
 [![MCP Index rank](https://mcp.kymatalabs.com/badge/com-datanexusmcp-mcp-server.svg)](https://mcp.kymatalabs.com/s/com-datanexusmcp-mcp-server/)
 [![Socket Badge](https://badge.socket.dev/npm/package/@datanexusmcp/mcp-server/2.4.10)](https://badge.socket.dev/npm/package/@datanexusmcp/mcp-server/2.4.10)
+[![Skills Playground](https://skillsplayground.com/badges/mcp/comdatanexusmcp-mcp-server.svg)](https://skillsplayground.com/mcps/comdatanexusmcp-mcp-server/)
 
 **55 tools. One URL. Free tier — no credit card.**
 
-Verified public data — CVE/SBOM security audits, licence compliance, frontend security scanning, nonprofit 990 filings, federal contracts, NPI lookups, patents, and domain intelligence — delivered as AI-Ready Markdown inside any MCP client.
+Verified public data — CVE/SBOM security audits, licence identification, frontend security scanning, nonprofit 990 filings, federal contracts, NPI lookups, patents, and domain intelligence — delivered as AI-Ready Markdown inside any MCP client.
 
 Connect in 30 seconds:
 
