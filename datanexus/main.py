@@ -308,6 +308,166 @@ class _SmitheryEventsMiddleware:
             await self.app(scope, receive, send)
 
 
+def _try_inject_nudge(body: bytes, msg: str) -> bytes:
+    """
+    Parse a JSON-RPC response and append a TextContent item to the
+    tools/call result content array. Returns body unchanged if parsing
+    fails or the response has no content array (e.g. tools/list).
+    """
+    try:
+        data = _json.loads(body)
+        content = (data.get("result") or {}).get("content")
+        if not isinstance(content, list):
+            return body
+        content.append({"type": "text", "text": msg})
+        return _json.dumps(data).encode()
+    except Exception:
+        return body
+
+
+class _IpCounterMiddleware:
+    """
+    Pure-ASGI per-day rate limiter sitting inside _ApiKeyMiddleware so
+    call_type_var, api_key_var, and client_ip_var are already populated.
+
+    Anonymous path (call_type != "registered"):
+      - Redis INCR + EXPIRE pipeline (atomic — never orphaned key without TTL).
+      - Hard block at 50/day per IP: HTTP 429 JSON-RPC error.
+      - First-call nudge (count==1): inject TextContent subscribe message.
+
+    Registered path (call_type == "registered"):
+      - Redis INCR + EXPIRE pipeline per API key per day.
+      - Soft nudge at 200/day: inject TextContent into tools/call response.
+      - No hard block — call always succeeds.
+
+    Fail-open: Redis unavailable → log warning and allow the call through.
+    Exempt call types (smithery, glama, smoke, owner, claude_ai) bypass entirely.
+
+    Middleware ordering: listed AFTER _SmitheryEventsMiddleware, _ClientIPMiddleware,
+    and _ApiKeyMiddleware in main.run() so all contextvars are set.
+
+    T3 — Smithery quality bot allowlist:
+      Populate SMITHERY_BOT_ALLOWLIST with IPs from server logs after deploy:
+        grep "events/list" /var/log/caddy/access.log | awk '{print $1}' | sort -u
+      These IPs bypass the daily counter entirely (belt-and-suspenders over
+      the _EXEMPT call-type check, which covers SMITHERY_CIDRS already).
+    """
+
+    _EXEMPT = frozenset({"smoke", "owner", "glama", "smithery", "claude_ai"})
+    _ANON_LIMIT = 50    # hard block at this count; 50th call returns 429
+    _REG_NUDGE  = 200   # soft nudge TextContent at this count per day
+
+    SMITHERY_BOT_ALLOWLIST: frozenset = frozenset()  # populated by T3
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        call_type = call_type_var.get()
+        client_ip = client_ip_var.get()
+
+        if call_type in self._EXEMPT or client_ip in self.SMITHERY_BOT_ALLOWLIST:
+            await self.app(scope, receive, send)
+            return
+
+        is_registered = call_type == "registered"
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        if is_registered:
+            ak = api_key_var.get() or "unknown"
+            counter_key = f"dn:daily_reg:{ak[:16]}:{today}"
+        else:
+            _h = _hashlib.sha256(client_ip.encode()).hexdigest()[:16]
+            counter_key = f"dn:daily_anon:{_h}:{today}"
+
+        # Atomic INCR + EXPIRE — never crashes between the two commands.
+        count = 0
+        try:
+            from datanexus.cache import get_redis
+            r = await get_redis()
+            if r:
+                pipe = r.pipeline()
+                pipe.incr(counter_key)
+                pipe.expire(counter_key, 86400)
+                results = await pipe.execute()
+                count = int(results[0])
+        except Exception as exc:
+            logger.warning("_IpCounterMiddleware: Redis unavailable, fail-open: %s", exc)
+            await self.app(scope, receive, send)
+            return
+
+        # Anonymous hard block: 50th call and beyond return HTTP 429.
+        if not is_registered and count >= self._ANON_LIMIT:
+            payload = _json.dumps({
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32000,
+                    "message": (
+                        f"Daily call limit reached ({self._ANON_LIMIT}/day). "
+                        "Subscribe at datanexusmcp.com/signup for higher limits."
+                    ),
+                },
+            }).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 429,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(payload)).encode()),
+                ],
+            })
+            await send({"type": "http.response.body", "body": payload})
+            return
+
+        # Determine if this call warrants a TextContent nudge in the response.
+        nudge_msg = None
+        if not is_registered and count == 1:
+            nudge_msg = (
+                "You've gotten your first result. "
+                "Subscribe at datanexusmcp.com/signup for higher daily limits (200/day)."
+            )
+        elif is_registered and count >= self._REG_NUDGE:
+            nudge_msg = (
+                f"You've made {count} calls today. "
+                "Subscribe at datanexusmcp.com/signup for unlimited access."
+            )
+
+        if nudge_msg is None:
+            await self.app(scope, receive, send)
+            return
+
+        # Buffer the response to inject the TextContent nudge.
+        response_start: dict = {}
+        body_parts: list = []
+
+        async def _capture(message):
+            t = message.get("type")
+            if t == "http.response.start":
+                response_start["msg"] = message
+            elif t == "http.response.body":
+                body_parts.append(message.get("body", b""))
+                if not message.get("more_body", False):
+                    raw = b"".join(body_parts)
+                    modified = _try_inject_nudge(raw, nudge_msg)
+                    hdr = response_start["msg"]
+                    if modified is not raw:
+                        hdr = dict(hdr, headers=[
+                            (k, v) for k, v in hdr["headers"]
+                            if k.lower() != b"content-length"
+                        ] + [(b"content-length", str(len(modified)).encode())])
+                    await send(hdr)
+                    await send({"type": "http.response.body", "body": modified, "more_body": False})
+            else:
+                await send(message)
+
+        await self.app(scope, receive, _capture)
+
+
 from datanexus.db_init import init_db
 from datanexus.core.prewarm import prewarm_cache
 from datanexus.analytics import fire_and_forget, track_server_start, shutdown as ph_shutdown
@@ -627,7 +787,7 @@ if __name__ == "__main__":
         transport="streamable-http",
         host="0.0.0.0",   # nosec B104
         port=8000,
-        middleware=[Middleware(_SmitheryEventsMiddleware), Middleware(_ClientIPMiddleware), Middleware(_ApiKeyMiddleware)],
+        middleware=[Middleware(_SmitheryEventsMiddleware), Middleware(_ClientIPMiddleware), Middleware(_ApiKeyMiddleware), Middleware(_IpCounterMiddleware)],
         stateless_http=True,
         json_response=True,
     )
