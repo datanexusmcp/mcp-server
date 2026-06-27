@@ -3,7 +3,7 @@
   "name": "com.datanexusmcp/mcp-server",
   "title": "DataNexus MCP",
   "description": "Public data intelligence for AI agents — CVE, compliance, patents, contracts, domains.",
-  "version": "2.4.11",
+  "version": "2.4.12",
   "license": "SEE LICENSE IN LICENSE",
   "mcpName": "com.datanexusmcp/mcp-server",
   "remotes": [
@@ -16,7 +16,7 @@
     {
       "registryType": "npm",
       "identifier": "@datanexusmcp/mcp-server",
-      "version": "2.4.11",
+      "version": "2.4.12",
       "transport": {
         "type": "stdio"
       }
