@@ -374,6 +374,35 @@ class _IpCounterMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Only count tools/call requests — not initialize, tools/list, or
+        # other MCP handshakes. Buffer body to check the JSON-RPC method,
+        # then re-inject it for downstream handlers.
+        chunks = []
+        more = True
+        while more:
+            msg = await receive()
+            chunks.append(msg.get("body", b""))
+            more = msg.get("more_body", False)
+        body = b"".join(chunks)
+
+        _sent = False
+
+        async def _re_receive():
+            nonlocal _sent
+            if not _sent:
+                _sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return {"type": "http.disconnect"}
+
+        try:
+            method = _json.loads(body).get("method", "")
+        except Exception:
+            method = ""
+
+        if method != "tools/call":
+            await self.app(scope, _re_receive, send)
+            return
+
         is_registered = call_type == "registered"
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -397,7 +426,7 @@ class _IpCounterMiddleware:
                 count = int(results[0])
         except Exception as exc:
             logger.warning("_IpCounterMiddleware: Redis unavailable, fail-open: %s", exc)
-            await self.app(scope, receive, send)
+            await self.app(scope, _re_receive, send)
             return
 
         # Anonymous hard block: 50th call and beyond return HTTP 429.
@@ -438,7 +467,7 @@ class _IpCounterMiddleware:
             )
 
         if nudge_msg is None:
-            await self.app(scope, receive, send)
+            await self.app(scope, _re_receive, send)
             return
 
         # Buffer the response to inject the TextContent nudge.
@@ -465,7 +494,7 @@ class _IpCounterMiddleware:
             else:
                 await send(message)
 
-        await self.app(scope, receive, _capture)
+        await self.app(scope, _re_receive, _capture)
 
 
 from datanexus.db_init import init_db
