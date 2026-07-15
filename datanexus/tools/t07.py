@@ -136,6 +136,34 @@ def _incr_calls(tool_id: str) -> None:
         pass
 
 
+def _clean_domain(domain: str) -> str:
+    """
+    Normalise a user-supplied domain for upstream lookups.
+
+    Strips an optional scheme (http:// or https://), a single leading "www."
+    label, and any trailing path/query/fragment, then lowercases.
+
+    Uses prefix removal — NOT str.lstrip(), which strips a *character set* and
+    silently eats leading letters that happen to be in the prefix. The old
+    code did `.lstrip("https://")`, whose set is {h,t,p,s,:,/}; "terralensai.com"
+    starts with 't' (in the set) so it became "erralensai.com". Likewise
+    `.lstrip("www.")` (set {w,.}) ate the leading 'w' of e.g. "wired.com".
+    """
+    d = domain.strip()
+    # Scheme prefix (case-insensitive), removed as a whole prefix.
+    low = d.lower()
+    for scheme in ("https://", "http://"):
+        if low.startswith(scheme):
+            d = d[len(scheme):]
+            break
+    # A single leading "www." label.
+    if d.lower().startswith("www."):
+        d = d[4:]
+    # Drop any path / query / fragment.
+    d = d.split("/")[0].split("?")[0].split("#")[0]
+    return d.lower()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA TOOL 1 — fetch_domain_rdap
 # ══════════════════════════════════════════════════════════════════════════════
@@ -150,9 +178,7 @@ async def fetch_domain_rdap(domain: Annotated[str, Field(description="Domain wit
     _error_code = None
     _cache_hit = False
     try:
-        domain_clean = domain.strip().lower().lstrip("www.").lstrip("https://").lstrip("http://")
-        # Strip any trailing path
-        domain_clean = domain_clean.split("/")[0]
+        domain_clean = _clean_domain(domain)
         params = {"domain": domain_clean}
 
         async with AuditContext("T07", params, "1.0") as ctx:
@@ -281,7 +307,7 @@ async def fetch_ssl_certificate_chain(domain: Annotated[str, Field(description="
     _error_code = None
     _cache_hit = False
     try:
-        domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
+        domain_clean = _clean_domain(domain)
         params = {"domain": domain_clean, "query_type": "cert_chain"}
 
         async with AuditContext("T07", params, "1.0") as ctx:
@@ -530,7 +556,7 @@ async def fetch_domain_history(domain: Annotated[str, Field(description="Domain 
     _error_code = None
     _cache_hit = False
     try:
-        domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
+        domain_clean = _clean_domain(domain)
         params = {"domain": domain_clean, "query_type": "history"}
 
         async with AuditContext("T07", params, "1.0") as ctx:
@@ -667,7 +693,7 @@ async def fetch_subdomains(domain: Annotated[str, Field(description="Domain with
     _error_code = None
     _cache_hit = False
     try:
-        domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
+        domain_clean = _clean_domain(domain)
         params = {"domain": domain_clean, "query_type": "subdomains"}
 
         async with AuditContext("T07", params, "1.0") as ctx:
@@ -1028,7 +1054,7 @@ async def fetch_reverse_ip(domain_or_ip: Annotated[str, Field(description="Domai
                 ip = raw_input
                 ip_note = ""
             else:
-                domain_clean = raw_input.lower().lstrip("www.").split("/")[0]
+                domain_clean = _clean_domain(raw_input)
                 try:
                     dns_result = await _fetch_dns_records(domain_clean, ["A", "AAAA"])
                 except Exception:
@@ -1255,6 +1281,9 @@ async def _fetch_rdap(domain: str) -> Optional[dict]:
         base_url = "https://rdap.org"
 
     url = f"{base_url}/domain/{domain}"
+    # Diagnostic: confirm the exact domain/URL sent upstream (guards against
+    # normalisation bugs like the lstrip() char-set issue that dropped a leading 't').
+    log.info("t07._fetch_rdap upstream_request domain=%s url=%s", domain, url)
     async with httpx.AsyncClient(
         timeout=_HTTP_TIMEOUT, headers=_HEADERS, follow_redirects=True
     ) as client:
