@@ -39,6 +39,8 @@ from datetime import datetime, timezone
 from typing import Annotated, List as _List, Literal as _Literal, Optional as _Optional
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import Middleware as _FastMCPMiddleware, MiddlewareContext
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -48,13 +50,69 @@ from pydantic import Field
 from datanexus.core.request_context import api_key_var, call_type_var, client_ip_var, is_organic_var, tier_var
 
 
+class _OriginValidationMiddleware:
+    """
+    Pure-ASGI middleware — rejects browser requests carrying an untrusted
+    Origin header (drive-by / cross-site DNS-rebinding protection for the
+    local MCP endpoint, per the MCP transport security guidance).
+
+    Policy:
+      - Absent or empty Origin  -> allow. Non-browser MCP clients (curl,
+        Claude Desktop, the Python/Node SDKs) do not send an Origin header,
+        so we must not break them.
+      - Origin in the allowlist  -> allow.
+      - Anything else            -> 403 JSON {"error","message"}, logged at
+        WARNING (origin value only, never the full request).
+
+    The request Origin is never reflected back and no wildcard is used —
+    this is an allowlist check, not a CORS response.
+    """
+
+    _ALLOWED_ORIGINS = frozenset({
+        "https://claude.ai",
+        "https://smithery.ai",
+        "https://glama.ai",
+        "https://mcpcentral.io",
+        "https://datanexusmcp.com",
+    })
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = {k.lower(): v for k, v in scope.get("headers", [])}
+            origin = headers.get(b"origin", b"").decode().strip()
+            if origin and origin not in self._ALLOWED_ORIGINS:
+                logging.getLogger("datanexus.main").warning(
+                    "_OriginValidationMiddleware: rejected untrusted origin %s", origin
+                )
+                response = JSONResponse(
+                    {"error": "forbidden", "message": "Untrusted origin"},
+                    status_code=403,
+                )
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
 class _ClientIPMiddleware:
     """
-    Pure-ASGI middleware — extracts the real client IP from the X-Real-IP
-    header (set by Caddy) and stores it in client_ip_var for the duration
-    of the request.
+    Pure-ASGI middleware — extracts the real client IP and stores it in
+    client_ip_var for the duration of the request.
 
-    Falls back through X-Forwarded-For → ASGI client host → 'unknown'.
+    datanexusmcp.com sits behind Cloudflare, which sets the Cf-Connecting-Ip
+    header to the real end-user IP for ALL traffic (Smithery, Claude.ai proxy,
+    direct). Caddy's {remote_host} — forwarded as X-Forwarded-For — is always a
+    Cloudflare edge IP (104.x / 172.x), so it is only a fallback.
+
+    Extraction priority:
+      1. Cf-Connecting-Ip (non-empty) — real end-user IP, set by Cloudflare.
+      2. X-Forwarded-For (non-empty) — fallback (Cloudflare edge / direct peer).
+      3. scope["client"] raw connection — last resort only; logs a WARNING so
+         a future regression (e.g. all traffic collapsing to Caddy's Docker IP)
+         is detectable from the logs.
+
     Pure-ASGI (not BaseHTTPMiddleware) so contextvars are correctly
     propagated into all coroutines within the same task chain.
     """
@@ -65,11 +123,18 @@ class _ClientIPMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] in ("http", "websocket"):
             headers = {k.lower(): v for k, v in scope.get("headers", [])}
-            ip = (
-                headers.get(b"x-real-ip", b"").decode().strip()
-                or headers.get(b"x-forwarded-for", b"").decode().split(",")[0].strip()
-                or (scope.get("client") or ("unknown", 0))[0]
-            )
+            cf_ip = headers.get(b"cf-connecting-ip", b"").decode().split(",")[0].strip()
+            xff_ip = headers.get(b"x-forwarded-for", b"").decode().split(",")[0].strip()
+            if cf_ip:
+                ip = cf_ip
+            elif xff_ip:
+                ip = xff_ip
+            else:
+                ip = (scope.get("client") or ("unknown", 0))[0]
+                logging.getLogger("datanexus.main").warning(
+                    "_ClientIPMiddleware: no Cf-Connecting-Ip or X-Forwarded-For "
+                    "header — falling back to raw connection IP %s", ip
+                )
             token = client_ip_var.set(ip or "unknown")
             try:
                 await self.app(scope, receive, send)
@@ -497,6 +562,78 @@ class _IpCounterMiddleware:
         await self.app(scope, _re_receive, _capture)
 
 
+# ── Credential-injection guard ────────────────────────────────────────────────
+# Some MCP clients auto-inject credential fields into tool arguments. FastMCP's
+# Pydantic validation (extra="forbid") then rejects the call with an opaque
+#   "1 validation error for call[...] _credentialsMap Unexpected keyword argument"
+# error pointing at a cryptic Pydantic URL — users give up and leave. We strip
+# the known credential fields before validation runs, and rewrite any residual
+# unexpected-keyword-argument error into a plain-language message.
+CREDENTIAL_FIELDS = frozenset({
+    "_credentialsMap", "api_key", "apiKey",
+    "Authorization", "authorization", "bearer_token",
+})
+
+_CREDENTIAL_ERROR_MSG = (
+    "DataNexus tools do not accept credential parameters. "
+    "Remove api_key/Authorization from your MCP client's tool "
+    "credential settings for datanexusmcp.com."
+)
+
+
+class _CredentialStripMiddleware(_FastMCPMiddleware):
+    """
+    FastMCP middleware — runs before tool dispatch / Pydantic validation.
+
+    Silently strips client-injected credential fields (CREDENTIAL_FIELDS) from
+    tool arguments so they never reach Pydantic's extra="forbid" check. If a
+    residual unexpected-keyword-argument error still surfaces (e.g. an unknown
+    credential field outside our set), the raw Pydantic traceback is replaced
+    with a clean, actionable message instead of a cryptic Pydantic URL.
+
+    NOTE: does NOT make tools accept credentials — the fields are discarded,
+    never forwarded to the tool function.
+
+    Registered FIRST (outermost) so downstream middleware — notably
+    _UsageMiddleware — observe the already-cleaned arguments.
+    """
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        # context.message is a CallToolRequestParams in fastmcp 3.2.x
+        # (.name/.arguments); 3.4.x may wrap it under .params — handle both.
+        try:
+            msg = context.message
+            args = getattr(msg, "arguments", None)
+            if args is None:
+                args = getattr(getattr(msg, "params", None), "arguments", None)
+            if isinstance(args, dict):
+                found = [f for f in CREDENTIAL_FIELDS if f in args]
+                if found:
+                    for f in found:
+                        args.pop(f, None)  # mutate in place — same dict reaches dispatch
+                    tool_name = (
+                        getattr(msg, "name", None)
+                        or getattr(getattr(msg, "params", None), "name", None)
+                        or "unknown"
+                    )
+                    logger.warning(
+                        "Stripped credential fields %s from %s call — "
+                        "client is injecting credentials into tool args",
+                        found, tool_name,
+                    )
+        except Exception:
+            # The guard must never break a tool call.
+            pass
+
+        try:
+            return await call_next(context)
+        except Exception as exc:
+            # Residual unexpected-keyword-argument rejection → clean message.
+            if "Unexpected keyword argument" in str(exc):
+                raise ToolError(_CREDENTIAL_ERROR_MSG) from exc
+            raise
+
+
 from datanexus.db_init import init_db
 from datanexus.core.prewarm import prewarm_cache
 from datanexus.analytics import fire_and_forget, track_server_start, shutdown as ph_shutdown
@@ -693,6 +830,9 @@ main.mount(nonprofit_sprint7_server,  namespace="nonprofit")
 
 # ── Mount Sprint 8A sub-server + register UsageMiddleware ────────────────────
 main.mount(api_key_server, namespace="apikeys")
+# Credential-strip guard FIRST (outermost) so it cleans args before they reach
+# _UsageMiddleware (records cleaned input) and Pydantic validation.
+main.add_middleware(_CredentialStripMiddleware())
 main.add_middleware(_UsageMiddleware())
 
 # ── Mount Sprint 8B sub-servers ───────────────────────────────────────────────
@@ -816,7 +956,7 @@ if __name__ == "__main__":
         transport="streamable-http",
         host="0.0.0.0",   # nosec B104
         port=8000,
-        middleware=[Middleware(_SmitheryEventsMiddleware), Middleware(_ClientIPMiddleware), Middleware(_ApiKeyMiddleware), Middleware(_IpCounterMiddleware)],
+        middleware=[Middleware(_SmitheryEventsMiddleware), Middleware(_OriginValidationMiddleware), Middleware(_ClientIPMiddleware), Middleware(_ApiKeyMiddleware), Middleware(_IpCounterMiddleware)],
         stateless_http=True,
         json_response=True,
     )

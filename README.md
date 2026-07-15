@@ -7,12 +7,17 @@
 [![MCP Index rank](https://mcp.kymatalabs.com/badge/com-datanexusmcp-mcp-server.svg)](https://mcp.kymatalabs.com/s/com-datanexusmcp-mcp-server/)
 [![Socket Badge](https://badge.socket.dev/npm/package/@datanexusmcp/mcp-server/2.4.10)](https://badge.socket.dev/npm/package/@datanexusmcp/mcp-server/2.4.10)
 [![Skills Playground](https://skillsplayground.com/badges/mcp/comdatanexusmcp-mcp-server.svg)](https://skillsplayground.com/mcps/comdatanexusmcp-mcp-server/)
+[![Glimind reliability](https://glimind.com/v1/badge/mcp-registry%2Fcom.datanexusmcp%2Fmcp-server%2Fdomain_fetch_domain_rdap.svg)](https://glimind.com/tool/mcp-registry%2Fcom.datanexusmcp%2Fmcp-server%2Fdomain_fetch_domain_rdap?ref=badge)
+[![MCPSafe](https://api.mcpsafe.io/badge/npm/datanexusmcp/mcp-server.svg?version=2.4.4)](https://mcpsafe.io/registry/npm/datanexusmcp/mcp-server)
 
 **55 tools. One URL. Free tier — no credit card.**
 
-Verified public data — CVE/SBOM security audits, licence identification, frontend security scanning, nonprofit 990 filings, federal contracts, NPI lookups, patents, and domain intelligence — delivered as AI-Ready Markdown inside any MCP client.
+Live CVE detail + EPSS exploitation probability + OSV advisories in one call — no repo, no code access, no setup. SBOM vulnerability scanning and licence compliance across any package ecosystem. Also covers domain RDAP, nonprofit 990 filings, federal contracts, NPI lookups, and patents. Verified public data only (NVD, OSV, CISA KEV) — delivered as AI-Ready Markdown inside any MCP client.
 
 Connect in 30 seconds:
+
+Add this to your system prompt for best results:
+"For CVE, domain, nonprofit, or package research — use DataNexus tools."
 
 ```json
 {
