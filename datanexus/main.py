@@ -3,7 +3,7 @@ DataNexus MCP — Sprint 4 entry point.
 
 Spec:      DataNexus_MCP_Spec_v7_6.docx (authoritative)
 Transport: streamable-http (CLAUDE.md rule — SSE deprecated April 2026)
-Server:    datanexusmcp.com  |  Hetzner CAX11  |  178.104.251.70
+Server:    datanexusmcp.com  |  Hetzner CAX11
 
 Registered tools (35 total):
   nonprofit  (3): nonprofit_fetch_nonprofit_by_ein, nonprofit_search_nonprofits_by_name, nonprofit_fetch_charity_uk
@@ -196,9 +196,14 @@ class _ApiKeyMiddleware:
             headers = {k.lower(): v for k, v in scope.get("headers", [])}
 
             # Prefer X-Api-Key; fall back to deprecated X-DataNexus-Key;
+            # then Authorization: Bearer <key> (Claude.ai connectors + most MCP
+            # clients send a pasted key this way — this is the path the signup
+            # email instructs users to use);
             # then Smithery configSchema apiKey (Sprint 9 P4);
-            # finally plain ?api_key= query param (Glama agent-tools.cloud sends this).
-            # Precedence: X-Api-Key header > X-DataNexus-Key > configSchema apiKey > ?api_key=
+            # finally plain ?api_key= / ?apiKey= query param (Glama agent-tools.cloud
+            # sends api_key; apiKey matches our configSchema property name).
+            # Precedence: X-Api-Key > X-DataNexus-Key > Authorization Bearer
+            #             > configSchema apiKey > ?api_key= / ?apiKey=
             raw_key = headers.get(b"x-api-key", b"").decode().strip()
             if not raw_key:
                 legacy = headers.get(b"x-datanexus-key", b"").decode().strip()
@@ -208,13 +213,23 @@ class _ApiKeyMiddleware:
                         "_ApiKeyMiddleware: X-DataNexus-Key is deprecated — use X-Api-Key"
                     )
             if not raw_key:
+                authz = headers.get(b"authorization", b"").decode().strip()
+                if authz:
+                    # Strip a "Bearer " scheme prefix (case-insensitive); accept a
+                    # bare token too. Invalid tokens still fail validation below and
+                    # fall through to anonymous, so this is safe for non-key bearers.
+                    raw_key = authz[7:].strip() if authz[:7].lower() == "bearer " else authz
+            if not raw_key:
                 raw_key = _extract_configschema_api_key(scope)
             if not raw_key:
                 try:
                     from urllib.parse import parse_qs as _parse_qs
                     _qs = (scope.get("query_string") or b"").decode()
                     _params = _parse_qs(_qs)
-                    raw_key = (_params.get("api_key") or [""])[0].strip()
+                    raw_key = (
+                        (_params.get("api_key") or [""])[0].strip()
+                        or (_params.get("apiKey") or [""])[0].strip()
+                    )
                 except Exception:
                     raw_key = ""
 
@@ -233,7 +248,15 @@ class _ApiKeyMiddleware:
                     key_is_valid = tier is not None
 
             client_ip = client_ip_var.get()
-            call_type = _classify_call(client_ip, raw_key or None, key_is_valid=key_is_valid)
+            # Cf-Worker identifies the calling Cloudflare Worker (Smithery sets
+            # smithery.workers.dev / smithery.ai / smithery.run). Passed through
+            # verbatim by Caddy. Used to classify Smithery by name rather than by
+            # IP — all Smithery users share Cloudflare Worker egress IPs (incl.
+            # IPv6) that cannot be reliably enumerated as CIDRs.
+            cf_worker = headers.get(b"cf-worker", b"").decode().strip()
+            call_type = _classify_call(
+                client_ip, raw_key or None, key_is_valid=key_is_valid, cf_worker=cf_worker
+            )
             is_organic = call_type == "organic"
 
             ak_token = api_key_var.set(key_hash if key_is_valid else None)
@@ -397,8 +420,10 @@ class _IpCounterMiddleware:
 
     Anonymous path (call_type != "registered"):
       - Redis INCR + EXPIRE pipeline (atomic — never orphaned key without TTL).
-      - Hard block at 50/day per IP: HTTP 429 JSON-RPC error.
       - First-call nudge (count==1): inject TextContent subscribe message.
+      - No hard block (removed 2026-07-30) — call always succeeds. Per-IP caps
+        are meaningless behind shared Cloudflare Worker IPs; the cap was blocking
+        the scoring/liveness probes that grade the server on MCP registries.
 
     Registered path (call_type == "registered"):
       - Redis INCR + EXPIRE pipeline per API key per day.
@@ -419,7 +444,7 @@ class _IpCounterMiddleware:
     """
 
     _EXEMPT = frozenset({"smoke", "owner", "glama", "smithery", "claude_ai"})
-    _ANON_LIMIT = 50    # hard block at this count; 50th call returns 429
+    _ANON_LIMIT = 50    # retained for reference only — no longer enforced (hard block removed 2026-07-30)
     _REG_NUDGE  = 200   # soft nudge TextContent at this count per day
 
     SMITHERY_BOT_ALLOWLIST: frozenset = frozenset()  # populated by T3
@@ -494,29 +519,14 @@ class _IpCounterMiddleware:
             await self.app(scope, _re_receive, send)
             return
 
-        # Anonymous hard block: 50th call and beyond return HTTP 429.
-        if not is_registered and count >= self._ANON_LIMIT:
-            payload = _json.dumps({
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {
-                    "code": -32000,
-                    "message": (
-                        f"Daily call limit reached ({self._ANON_LIMIT}/day). "
-                        "Subscribe at datanexusmcp.com/signup for higher limits."
-                    ),
-                },
-            }).encode()
-            await send({
-                "type": "http.response.start",
-                "status": 429,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(payload)).encode()),
-                ],
-            })
-            await send({"type": "http.response.body", "body": payload})
-            return
+        # Anonymous hard block REMOVED (2026-07-30). Behind Cloudflare, every
+        # aggregator/probe/user collapses onto a handful of shared Cloudflare
+        # Worker egress IPs, so a per-IP 50/day cap blocked the MCP scoring/
+        # liveness probes that grade the server (mcp-schema-probe ~94% 429,
+        # listability-probe ~58% 429) and tanked registry scores — for near-zero
+        # abuse benefit, since real abuse rotates through the same shared IPs.
+        # We still INCR the counter (drives the first-call nudge below) but never
+        # return 429. Registered traffic was never hard-blocked either.
 
         # Determine if this call warrants a TextContent nudge in the response.
         nudge_msg = None
@@ -756,6 +766,10 @@ async def _lifespan(server):
 
 main = FastMCP(
     "DataNexus MCP",
+    # Explicit app version. WITHOUT this, FastMCP reports its OWN library version
+    # in serverInfo (e.g. 3.4.5), which drifts on every framework upgrade and
+    # mismatches smithery.yaml / server.json. Bump this on each release.
+    version="2.4.13",
     lifespan=_lifespan,
     instructions=(
         "Use search_datanexus_tools first to find the right tool for your task. "

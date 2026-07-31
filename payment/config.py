@@ -165,16 +165,34 @@ def is_smithery_ip(ip: str) -> bool:
     return _ip_in_cidrs(ip, SMITHERY_CIDRS)
 
 
+def is_smithery_worker(cf_worker: Optional[str]) -> bool:
+    """
+    True when the request came from Smithery's Cloudflare Worker.
+
+    Smithery sets a Cf-Worker header of "smithery.workers.dev", "smithery.ai",
+    or "smithery.run". This is the RELIABLE Smithery signal: all Smithery users
+    egress from shared Cloudflare Worker IPs (incl. IPv6 like 2a06:98c0:3600::103)
+    that are NOT practical to enumerate as CIDRs — and those IPs are shared with
+    unrelated Workers/scanners, so IP alone both misses Smithery (IPv6) and would
+    over-match if we added all of Cloudflare. Classify by the worker name instead.
+    """
+    if not cf_worker:
+        return False
+    return cf_worker.strip().lower().startswith("smithery")
+
+
 def classify_call(
     client_ip: str,
     api_key: Optional[str],
     key_is_valid: bool = False,
+    cf_worker: Optional[str] = None,
 ) -> str:
     """
     Classify a tool call by its origin.
 
     api_key: raw key string (not hash). Reserved keys are matched by value.
     key_is_valid: pre-computed by _ApiKeyMiddleware — do NOT re-validate here.
+    cf_worker: value of the incoming Cf-Worker header, if any (Smithery signal).
 
     Returns one of: smoke | owner | glama | registered | smithery | claude_ai | organic | unknown
 
@@ -182,17 +200,20 @@ def classify_call(
       1. Reserved key match (smoke/owner/glama)
       2. Valid registered key
       3. IP in GLAMA_CIDRS
-      4. IP in SMITHERY_CIDRS
+      4. Smithery — by Cf-Worker header (primary) OR IP in SMITHERY_CIDRS (legacy)
       5. IP in ANTHROPIC_CIDRS
       6. Known non-empty IP → organic
       7. Unknown/missing IP → unknown
+
+    A valid registered key still wins over Smithery (step 2 precedes step 4), so
+    Smithery users who configure an API key are attributed as 'registered'.
     """
     if api_key == SMOKE_API_KEY:    return "smoke"
     if api_key == OWNER_API_KEY:    return "owner"
     if api_key == GLAMA_API_KEY:    return "glama"
     if api_key and key_is_valid:    return "registered"
     if is_glama_ip(client_ip):      return "glama"
-    if is_smithery_ip(client_ip):   return "smithery"
+    if is_smithery_worker(cf_worker) or is_smithery_ip(client_ip): return "smithery"
     if is_anthropic_ip(client_ip):  return "claude_ai"
     if client_ip not in (None, "", "unknown"): return "organic"
     return "unknown"

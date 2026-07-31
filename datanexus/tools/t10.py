@@ -118,16 +118,19 @@ _DEPS_SYSTEM: dict[str, str] = {
 @verify_entitlement("T10")
 async def fetch_package_vulnerabilities(
     package: Annotated[Optional[str], Field(description="Package name e.g. requests. Required in single-package mode.")] = None,
+    package_name: Annotated[Optional[str], Field(description="Alias for `package`. Accepted for consistency with other DataNexus tools.")] = None,
     version: Annotated[Optional[str], Field(description="Package version e.g. 2.28.0. Required in single-package mode.")] = None,
     ecosystem: Annotated[Optional[str], Field(description="Package ecosystem: npm, pypi, cargo, go, maven, nuget. Required.")] = None,
     packages: Annotated[Optional[list], Field(description="Batch list of {name, version, ecosystem} objects. Max 50.")] = None,
 ) -> dict:
-    """Fetch all known CVEs for an open source package version or a batch of packages. Read-only. No side effects. Idempotent. Single-package mode: package (e.g. requests), version (e.g. 2.28.0), ecosystem (PyPI/npm/Maven/Go/Cargo/NuGet/RubyGems). Batch mode: packages array of {name, version, ecosystem} objects — max 50 per call. If packages array is provided and non-empty, batch mode is used and package/version/ecosystem are ignored. Batch returns {results: [...], partial: bool, failed_count: int}. Each result has vuln_count and vulnerabilities list. Returns CVE ID, severity, CVSS score, affected range, and fixed version. Use security_fetch_cve_detail for full detail by CVE ID. Use security_audit_sbom_vulnerabilities for SBOM files. Verified source: Google OSV.dev. 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_package_vulnerabilities", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
+    """Fetch all known CVEs for an open source package version or a batch of packages. Read-only. No side effects. Idempotent. Single-package mode: package (e.g. requests), version (e.g. 2.28.0), ecosystem (PyPI/npm/Maven/Go/Cargo/NuGet/RubyGems). package_name is accepted as an alias for package. Batch mode: packages array of {name, version, ecosystem} objects — max 50 per call. If packages array is provided and non-empty, batch mode is used and package/version/ecosystem are ignored. Batch returns {results: [...], partial: bool, failed_count: int}. Each result has vuln_count and vulnerabilities list. Returns CVE ID, severity, CVSS score, affected range, and fixed version. Use security_fetch_cve_detail for full detail by CVE ID. Use security_audit_sbom_vulnerabilities for SBOM files. Verified source: Google OSV.dev. 1-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="security_fetch_package_vulnerabilities", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
     _error_code = None
     _cache_hit = False
     try:
+        package = package or package_name
+
         # ── Disambiguation (Sprint 4 spec) ────────────────────────────────────
         _batch_mode = packages is not None and len(packages) > 0
         _single_mode = package is not None and version is not None and ecosystem is not None
