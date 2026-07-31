@@ -75,3 +75,12 @@ datanexus/db/migrations/*.sql
 datanexus/core/db_migrations/*.sql
 key.pem
 MCP_PUBLISH_STEPS.md
+
+# Local ops / deploy tooling — machine-specific, never publish
+deploy.sh
+# root-level ops scripts (lock-origin, etc) — NOT the datanexus/ops app code
+/ops/
+# usage exports contain user IP addresses (PII)
+*usage_analysis*
+# npm pack/publish tarballs
+*.tgz

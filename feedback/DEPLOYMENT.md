@@ -1,7 +1,7 @@
 # DataNexus Feedback System — Deployment Guide
 
 **Spec:** DataNexus_MCP_Spec_v7_3.docx Section 8 / Section 11.6 Step 14  
-**Server:** Hetzner CAX11 — `datanexusmcp.com` / `178.104.251.70`  
+**Server:** Hetzner CAX11 — `datanexusmcp.com`  
 **Last updated:** 2026-05-01
 
 ---

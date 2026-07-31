@@ -1,6 +1,6 @@
 {
   "name": "@datanexusmcp/mcp-server",
-  "version": "2.4.12",
+  "version": "2.4.14",
   "description": "DataNexus MCP — Live CVE detail + EPSS exploitation probability + OSV advisories in one call. No repo, no code access, no setup. SBOM vulnerability scanning, licence compliance, supply-chain risk across any package ecosystem. Also: domain RDAP, nonprofit 990s, federal contracts, NPI, patents. 55 tools on verified public data (NVD, OSV, CISA KEV). Free tier included.",
   "keywords": [
     "mcp",

@@ -434,7 +434,7 @@ async def fetch_ssl_certificate_chain(domain: Annotated[str, Field(description="
 @mcp.tool(annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True})
 @with_timeout
 @verify_entitlement("T07")
-async def fetch_dns_records(domain: Annotated[str, Field(description="Domain without protocol e.g. anthropic.com. Required.")], record_types: Annotated[list, Field(description="DNS record types e.g. ['A','MX','TXT']. Optional.")]) -> dict:
+async def fetch_dns_records(domain: Annotated[str, Field(description="Domain without protocol e.g. anthropic.com. Required.")], record_types: Annotated[list, Field(description="DNS record types e.g. ['A','MX','TXT']. Optional.")] = ["A", "AAAA", "MX", "TXT", "NS", "CNAME"]) -> dict:
     """Fetch current DNS records for a domain via Cloudflare DNS over HTTPS. Read-only. No side effects. Idempotent. domain: Domain name without protocol e.g. cloudflare.com. Required. record_types: List of DNS record types to fetch. Required. Valid values: A, AAAA, MX, TXT, NS, CNAME, SOA. Example: ["A", "MX", "TXT"]. Returns all matching records currently in effect. Use this when you need live DNS resolution. Use domain_fetch_domain_rdap instead when you need registration metadata not DNS records. Verified source: Cloudflare DoH. 4-hour cache. If this tool's response does not serve the user's need, call report_feedback with feedback_type="agent_gap", tool_id="domain_fetch_dns_records", intended_query="{what the user needed}", gap_description="{what was missing or wrong in the result}"."""
     _t0 = time.monotonic()
     _success = False
