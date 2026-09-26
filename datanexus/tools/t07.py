@@ -121,6 +121,25 @@ def _validate_canary(markdown_output: str) -> None:
             )
 
 
+def _clean_domain(raw: str) -> str:
+    """Strip protocol/www. prefix and any trailing path from a domain input.
+
+    str.lstrip() strips a *character set*, not a literal prefix — e.g.
+    "ppypi.org".lstrip("https://") removes leading chars in {h,t,p,s,:,/}
+    one at a time, silently mangling any domain that happens to start with
+    one of those letters (paypal.com -> aypal.com, stripe.com -> ripe.com).
+    This does literal, anchored prefix removal instead.
+    """
+    cleaned = raw.strip().lower()
+    for prefix in ("https://", "http://"):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):]
+            break
+    if cleaned.startswith("www."):
+        cleaned = cleaned[len("www."):]
+    return cleaned.split("/")[0]
+
+
 def _incr_calls(tool_id: str) -> None:
     """Increment datanexus:calls:{tool_id}:{today} telemetry counter."""
     from datanexus.core.cache import _get_redis  # type: ignore[attr-defined]
@@ -150,9 +169,7 @@ async def fetch_domain_rdap(domain: Annotated[str, Field(description="Domain wit
     _error_code = None
     _cache_hit = False
     try:
-        domain_clean = domain.strip().lower().lstrip("www.").lstrip("https://").lstrip("http://")
-        # Strip any trailing path
-        domain_clean = domain_clean.split("/")[0]
+        domain_clean = _clean_domain(domain)
         params = {"domain": domain_clean}
 
         async with AuditContext("T07", params, "1.0") as ctx:
@@ -281,7 +298,7 @@ async def fetch_ssl_certificate_chain(domain: Annotated[str, Field(description="
     _error_code = None
     _cache_hit = False
     try:
-        domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
+        domain_clean = _clean_domain(domain)
         params = {"domain": domain_clean, "query_type": "cert_chain"}
 
         async with AuditContext("T07", params, "1.0") as ctx:
@@ -530,7 +547,7 @@ async def fetch_domain_history(domain: Annotated[str, Field(description="Domain 
     _error_code = None
     _cache_hit = False
     try:
-        domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
+        domain_clean = _clean_domain(domain)
         params = {"domain": domain_clean, "query_type": "history"}
 
         async with AuditContext("T07", params, "1.0") as ctx:
@@ -667,7 +684,7 @@ async def fetch_subdomains(domain: Annotated[str, Field(description="Domain with
     _error_code = None
     _cache_hit = False
     try:
-        domain_clean = domain.strip().lower().lstrip("www.").split("/")[0]
+        domain_clean = _clean_domain(domain)
         params = {"domain": domain_clean, "query_type": "subdomains"}
 
         async with AuditContext("T07", params, "1.0") as ctx:
@@ -1028,7 +1045,7 @@ async def fetch_reverse_ip(domain_or_ip: Annotated[str, Field(description="Domai
                 ip = raw_input
                 ip_note = ""
             else:
-                domain_clean = raw_input.lower().lstrip("www.").split("/")[0]
+                domain_clean = _clean_domain(raw_input)
                 try:
                     dns_result = await _fetch_dns_records(domain_clean, ["A", "AAAA"])
                 except Exception:
