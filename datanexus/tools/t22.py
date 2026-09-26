@@ -738,6 +738,16 @@ async def _check_sam_exclusion_live(query: str) -> dict:
         timeout=_HTTP_TIMEOUT, headers=_HEADERS, follow_redirects=True
     ) as client:
         resp = await client.get(SAM_EXCL_API, params=params)
+        # SAM.gov returns 404 when NO exclusion records match the query — that is a
+        # valid "not on the exclusions list" answer (good news), NOT an error. Only
+        # raise for genuine failures (5xx, auth, etc.).
+        if resp.status_code == 404:
+            return {
+                "exclusion_found": False,
+                "query":           query,
+                "exclusion_count": 0,
+                "source":          "SAM.gov Exclusions",
+            }
         resp.raise_for_status()
         data = resp.json()
 
