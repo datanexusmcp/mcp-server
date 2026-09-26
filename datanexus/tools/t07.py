@@ -121,6 +121,25 @@ def _validate_canary(markdown_output: str) -> None:
             )
 
 
+def _clean_domain(raw: str) -> str:
+    """Strip protocol/www. prefix and any trailing path from a domain input.
+
+    str.lstrip() strips a *character set*, not a literal prefix — e.g.
+    "ppypi.org".lstrip("https://") removes leading chars in {h,t,p,s,:,/}
+    one at a time, silently mangling any domain that happens to start with
+    one of those letters (paypal.com -> aypal.com, stripe.com -> ripe.com).
+    This does literal, anchored prefix removal instead.
+    """
+    cleaned = raw.strip().lower()
+    for prefix in ("https://", "http://"):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):]
+            break
+    if cleaned.startswith("www."):
+        cleaned = cleaned[len("www."):]
+    return cleaned.split("/")[0]
+
+
 def _incr_calls(tool_id: str) -> None:
     """Increment datanexus:calls:{tool_id}:{today} telemetry counter."""
     from datanexus.core.cache import _get_redis  # type: ignore[attr-defined]
